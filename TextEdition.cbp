@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes" ?>
+<CodeBlocks_project_file>
+	<FileVersion major="1" minor="6" />
+	<Project>
+		<Option title="TextEdition" />
+		<Option pch_mode="2" />
+		<Option compiler="gcc" />
+		<Build>
+			<Target title="Debug">
+				<Option output="bin/Debug/te" prefix_auto="1" extension_auto="1" />
+				<Option object_output="obj/Debug/" />
+				<Option type="0" />
+				<Option compiler="gcc" />
+				<Compiler>
+					<Add option="-g" />
+				</Compiler>
+			</Target>
+		</Build>
+		<Compiler>
+			<Add option="-Winit-self" />
+			<Add option="-Wredundant-decls" />
+			<Add option="-Wcast-align" />
+			<Add option="-Wundef" />
+			<Add option="-Wfloat-equal" />
+			<Add option="-Wunreachable-code" />
+			<Add option="-Wmissing-declarations" />
+			<Add option="-Wmissing-include-dirs" />
+			<Add option="-Wswitch-default" />
+			<Add option="-Wmain" />
+			<Add option="-Wextra" />
+			<Add option="-Wall" />
+			<Add option="-Wwrite-strings -Wstrict-prototypes" />
+			<Add directory="/usr/lib/" />
+		</Compiler>
+		<Linker>
+			<Add library="SDLmain" />
+			<Add library="SDL" />
+			<Add library="SDL_ttf" />
+			<Add library="SDL_image" />
+			<Add directory="C:/Program Files/CodeBlocks/SDL/lib" />
+		</Linker>
+		<Unit filename="main.c">
+			<Option compilerVar="CC" />
+		</Unit>
+		<Unit filename="textedition.c">
+			<Option compilerVar="CC" />
+		</Unit>
+		<Unit filename="textedition.h" />
+		<Extensions>
+			<code_completion />
+			<debugger />
+		</Extensions>
+	</Project>
+</CodeBlocks_project_file>

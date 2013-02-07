@@ -52,9 +52,9 @@ How to properly create and manage a text box ?
 
 To create and manage a text box with this function, you have to respect some rules.
 First, if you want to create a Text Edition with TE_BLITSTYLE_BLENDED style on a non-uniform background, you must call the function after having drawn this background. If this background changes during the program, you'll have to destroy the Text Edition and re-create it with the new background.
-After having created your Text Edition, to manage it, you have to call the function HoldTextEdition() each time you retrieve an event from SDL. You must pass this event to the function (see the example file).
-While the Text Edition is active, it is highly recommended not to modify any member of the structure, except the style member or the text. If you want to modify the Text Edition, destroy it and create another one. Note : A function will soon be provided in order to allow the modification of some parameters.
-When you no longer need the Text Edition, use the function DeleteEdition() to free it. After the call, the structure is still valid, but all the pointers are NULL. You can use it to create another Text Edition with the same parameters.
+After having created your Text Edition, to manage it, you have to call the function TE_HoldTextEdition() each time you retrieve an event from SDL. You must pass this event to the function (see the example file).
+While the Text Edition is active, it is highly recommended not to modify any member of the structure, except the style member. Some functions are provided to modify some characteristics of the Text Edition, such as the text or the cursor position. If you want to modify other characteristics, you have to destroy the Edition and to create another one.
+When you no longer need the Text Edition, use the function TE_DeleteEdition() to free it. After the call, the structure is still valid, but all the pointers are NULL. You can use it to create another Text Edition with the same parameters. However, if the blitSurface was a custom surface, it is deleted by the deleting function, you should reallocate it and set the blitSurf parameter again (it is automatically set to NULL).
 
 
 

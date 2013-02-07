@@ -1325,3 +1325,18 @@ int TE_GetFocusEdition(TextEdition *te)
 	return te->focus;
 }
 
+int TE_SetCursorPos(TextEdition *te, int cursorPos)
+{
+    if (cursorPos >= 0 && cursorPos <= strlen(te->text))
+    {
+        te->cursorPos = cursorPos;
+        OffsetCorrection(te);
+        return 1;
+    }
+    else return 0;
+}
+
+int TE_GetCursorPos(TextEdition *te)
+{
+    return te->cursorPos;
+}

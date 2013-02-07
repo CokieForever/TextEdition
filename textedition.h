@@ -123,5 +123,7 @@ SDL_Surface* TE_RenderText(const char text[], TextEdition te, int inverted);
 int TE_SetEditionText(TextEdition *te, const char text[]);
 int TE_SetFocusEdition(TextEdition *te, int focus);
 int TE_GetFocusEdition(TextEdition *te);
+int TE_SetCursorPos(TextEdition *te, int cursorPos);
+int TE_GetCursorPos(TextEdition *te);
 
 #endif

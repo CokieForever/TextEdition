@@ -1,42 +1,92 @@
 #include "textedition.h"
 
-int DisplayCursor(TextEdition te);
-int DisplayScrollBars(TextEdition *te);
-int SetHSBFromOffset(TextEdition *te);
-int SetVSBFromOffset(TextEdition *te);
-int SetOffsetFromHSB(TextEdition *te);
-int SetOffsetFromVSB(TextEdition *te);
-int HoldKeyPressing(TextEdition *te, SDL_Event event);
-int HoldKeyPressing_Ctrl(TextEdition *te, SDL_Event event);
-int HoldCursorPosition(TextEdition *te, SDL_Event event);
-int HoldCursorPosition_Keyboard(TextEdition *te, SDL_Event event, int *l, int *c);
-int OffsetCorrection(TextEdition *te);
-int WordHead(const char text[], int i);
-int LineLength(CharInfo line[]);
-void GetPositionInEdition(TextEdition te, int i, int *l, int *c);
-int GetPositionInText(TextEdition te, int l, int c);
-int GetLineFromYPosition(TextEdition te, int y);
-int GetCharFromXPosition(TextEdition te, int l, int x);
-int NewLetter(CharInfo **tab, int l, int c);
-int NewLine(TextEdition *te, int l);
-int DimLetter(TextEdition te, char c, int *w, int *h);
-int WidthWord(TextEdition te, int i);
-SDL_Color ColorInverse(SDL_Color color);
-int DeleteChar(char text[], unsigned int pos);
-int InsertChar(char text[], unsigned int pos, char c, unsigned int length);
-int InsertString(char text[], unsigned int pos, char string[], unsigned int lengthMax);
-int DeleteSelection(TextEdition *te);
-SDL_Cursor* CreateCursor(const char *image[]);
-int SetHSBLength(TextEdition *te, int length);
-int SetVSBLength(TextEdition *te, int length);
-int IsMouseOverHSB(TextEdition te, int x, int y);
-int IsMouseOverVSB(TextEdition te, int x, int y);
-int DeleteAllChars(char text[], char c);
+#if SDL_BYTEORDER == SDL_BIG_ENDIAN
 
-int TE_initialized = 0;
-SDL_Cursor *TE_EditionCursor = NULL,
-           *TE_NormalCursor = NULL;
-char *TE_clipBoard = NULL;
+#define RED_MASK   0xFF000000
+#define GREEN_MASK 0x00FF0000
+#define BLUE_MASK  0x0000FF00
+#define ALPHA_MASK 0x000000FF
+
+#else
+
+#define RED_MASK   0x000000FF
+#define GREEN_MASK 0x0000FF00
+#define BLUE_MASK  0x00FF0000
+#define ALPHA_MASK 0xFF000000
+
+#endif
+
+
+#define HasMultilineStyle(s)    (((s)&TE_STYLE_MULTILINE)==TE_STYLE_MULTILINE)
+#define HasVScrollStyle(s)      (((s)&TE_STYLE_VSCROLL)==TE_STYLE_VSCROLL)
+#define HasHScrollStyle(s)      (((s)&TE_STYLE_HSCROLL)==TE_STYLE_HSCROLL)
+#define HasAutoJumpStyle(s)     (((s)&TE_STYLE_AUTOJUMP)==TE_STYLE_AUTOJUMP)
+#define HasReadOnlyStyle(s)     (((s)&TE_STYLE_READONLY)==TE_STYLE_READONLY)
+#define HasJustDisplayStyle(s)  (((s)&TE_STYLE_JUSTDISPLAY)==TE_STYLE_JUSTDISPLAY)
+#define HasBlitRGBAStyle(s)     (((s)&TE_STYLE_BLITRGBA)==TE_STYLE_BLITRGBA)
+
+#define INVALID_CHAR            '\r'
+#define INVALID_PTR             0xFFFFFFF
+
+#define IsCharOK(c)             ((c) != INVALID_CHAR && (c))
+#define IsLineOK(te,l)          ((l) < (te).numLines && (l) <= (te).lastLine)
+
+#define WidthChar(te,c)         (te).dimTab[(int)((c)+128)].w
+#define HeigthChar(te,c)        (te).dimTab[(int)((c)+128)].h
+
+#define HSBHeight(te)           ((te).HScrollBar ? (te).HScrollBar->h : 0)
+#define VSBWidth(te)            ((te).VScrollBar ? (te).VScrollBar->w : 0)
+
+#define IsInRect(pt,rect)       ((pt).x>=(rect).x && (pt).x<=(rect).x+(rect).w && (pt).y>=(rect).y && (pt).y<=(rect).y+(rect).h)
+#define IsRectInRect(rIn,rExt)  ((rIn).x>=(rExt).x && (rIn).x+(rIn).w<=(rExt).x+(rExt).w && (rIn).y>=(rExt).y && (rIn).y+(rIn).h<=(rExt).y+(rExt).h)
+#define IsInSelection(i,s)      (((i)>=(s).begin && (i)<(s).end) || ((i)<(s).begin && (i)>=(s).end))
+
+#define AreSameColor(c1,c2)     ((c1).r==(c2).r && (c1).g==(c2).g && (c1).b==(c2).b)
+
+#define Ceil(x)                 ((x)>=0 ? ceil(x) : -ceil(-(x)) )
+
+
+static int DisplayCursor(TextEdition te);
+static int DisplayScrollBars(TextEdition *te);
+static int SetHSBFromOffset(TextEdition *te);
+static int SetVSBFromOffset(TextEdition *te);
+static int SetOffsetFromHSB(TextEdition *te);
+static int SetOffsetFromVSB(TextEdition *te);
+static int HoldKeyPressing(TextEdition *te, SDL_Event event);
+static int HoldKeyPressing_Ctrl(TextEdition *te, SDL_Event event);
+static int HoldCursorPosition(TextEdition *te, SDL_Event event);
+static int HoldCursorPosition_Keyboard(TextEdition *te, SDL_Event event, int *l, int *c);
+static int OffsetCorrection(TextEdition *te);
+static int WordHead(const char text[], int i);
+static int LineLength(TE_CharInfo line[]);
+static void GetPositionInEdition(TextEdition te, int i, int *l, int *c);
+static int GetPositionInText(TextEdition te, int l, int c);
+static int GetLineFromYPosition(TextEdition te, int y);
+static int GetCharFromXPosition(TextEdition te, int l, int x);
+static int NewLetter(TE_CharInfo **tab, int l, int c);
+static int NewLine(TextEdition *te, int l);
+static int DimLetter(TextEdition te, char c, int *w, int *h);
+static int WidthWord(TextEdition te, int i);
+static int DeleteChar(char text[], unsigned int pos);
+static int InsertChar(char text[], unsigned int pos, char c, unsigned int length);
+static int InsertString(char text[], unsigned int pos, char string[], unsigned int lengthMax);
+static int DeleteSelection(TextEdition *te);
+static int SetHSBLength(TextEdition *te, int length);
+static int SetVSBLength(TextEdition *te, int length);
+static int IsMouseOverHSB(TextEdition te, int x, int y);
+static int IsMouseOverVSB(TextEdition te, int x, int y);
+static int DeleteAllChars(char text[], char c);
+
+static SDL_Color ColorInverse(SDL_Color color);
+static SDL_Cursor* CreateCursor(const char *image[]);
+static int BlitRGBA(SDL_Surface *srcSurf, SDL_Rect *srcRect0, SDL_Surface *dstSurf, SDL_Rect *dstRect0);
+static Uint32 GetPixel(SDL_Surface *surface, int x, int y);
+static void PutPixel(SDL_Surface *surface, int x, int y, Uint32 pixel);
+
+static int TE_initialized = 0;
+static SDL_Cursor *TE_EditionCursor = NULL,
+                  *TE_NormalCursor = NULL;
+static char *TE_clipBoard = NULL;
 
 
 
@@ -50,6 +100,10 @@ int TE_NewTextEdition(TextEdition *te, int length, SDL_Rect pos, TTF_Font *font,
 
     if (!te || !font || length <= 0)
         return 0;
+
+    te->idWriterThread = 0;
+    te->nbReaders = 0;
+    TE_LockEdition(te, TE_FULL_ACCESS);
 
     te->textLength = length;
     te->text = malloc(sizeof(char)*(length+1));
@@ -92,9 +146,9 @@ int TE_NewTextEdition(TextEdition *te, int length, SDL_Rect pos, TTF_Font *font,
     /*te->blitSurfPos.x = 0;
     te->blitSurfPos.y = 0;*/
 
-    te->tab = malloc(sizeof(CharInfo*));
-    te->tab[0] = malloc(sizeof(CharInfo));
-    memset(&(te->tab[0][0]),0,sizeof(CharInfo));
+    te->tab = malloc(sizeof(TE_CharInfo*));
+    te->tab[0] = malloc(sizeof(TE_CharInfo));
+    memset(&(te->tab[0][0]),0,sizeof(TE_CharInfo));
     te->numLines = 1;
     te->lastLine = 0;
     te->offsetX = 0;
@@ -124,17 +178,30 @@ int TE_NewTextEdition(TextEdition *te, int length, SDL_Rect pos, TTF_Font *font,
     pos.x = 0;
     pos.y = 0;
     pos2 = te->pos;
-    te->tmpSurf = SDL_CreateRGBSurface(SDL_HWSURFACE, pos2.w, pos2.h, 32, 0,0,0,0);
-    SDL_BlitSurface(te->blitSurf, &pos2, te->tmpSurf, &pos);
-    te->tmpSurfSave = SDL_CreateRGBSurface(SDL_HWSURFACE, pos2.w, pos2.h, 32, 0,0,0,0);
-    SDL_BlitSurface(te->blitSurf, &pos2, te->tmpSurfSave, &pos);
+    if (HasBlitRGBAStyle(te->style))
+    {
+        te->tmpSurf = SDL_CreateRGBSurface(SDL_HWSURFACE, pos2.w, pos2.h, 32, RED_MASK,GREEN_MASK,BLUE_MASK,ALPHA_MASK);
+        SDL_FillRect(te->tmpSurf, NULL, SDL_MapRGBA(te->tmpSurf->format, 0,0,0, SDL_ALPHA_TRANSPARENT));
+        te->tmpSurfSave = NULL;
+    }
+    else
+    {
+        te->tmpSurf = SDL_CreateRGBSurface(SDL_HWSURFACE, pos2.w, pos2.h, 32, 0,0,0,0);
+        SDL_BlitSurface(te->blitSurf, &pos2, te->tmpSurf, &pos);
+        te->tmpSurfSave = SDL_CreateRGBSurface(SDL_HWSURFACE, pos2.w, pos2.h, 32, 0,0,0,0);
+        SDL_BlitSurface(te->blitSurf, &pos2, te->tmpSurfSave, &pos);
+    }
 
+    TE_UnlockEdition(te);
     return 1;
 }
 
-void TE_DeleteTextEdition(TextEdition *te)
+int TE_DeleteTextEdition(TextEdition *te)
 {
     int l;
+
+    if (!TE_LockEdition(te, TE_FULL_ACCESS))
+        return 0;
 
     if (te->text)
         free(te->text);
@@ -170,12 +237,18 @@ void TE_DeleteTextEdition(TextEdition *te)
     if (te->VScrollBar)
         SDL_FreeSurface(te->VScrollBar);
     te->VScrollBar = NULL;
+
+    TE_UnlockEdition(te);
+    return 1;
 }
 
 
 int TE_UpdateTextEdition(TextEdition *te, int i)
 {
     int c, l, x, y, done=0;
+
+    if (!TE_LockEdition(te, TE_FULL_ACCESS))
+        return 0;
 
     i = WordHead(te->text, i-1);
     GetPositionInEdition(*te, i, &l, &c);
@@ -229,6 +302,7 @@ int TE_UpdateTextEdition(TextEdition *te, int i)
     SetHSBFromOffset(te);
     SetVSBFromOffset(te);
 
+    TE_UnlockEdition(te);
     return 1;
 }
 
@@ -238,7 +312,10 @@ int TE_DisplayTextEdition(TextEdition *te)
     char buf[2] = "";
     SDL_Rect pos, rect = te->pos;
     SDL_Surface *surf;
-    CharInfo *ci, *fci, *lci;
+    TE_CharInfo *ci, *fci, *lci;
+
+    if (!TE_LockEdition(te, TE_ACCESS_READ))
+        return 0;
 
     rect.x = 0; rect.y = 0;
     rect.w -= VSBWidth(*te);
@@ -264,9 +341,19 @@ int TE_DisplayTextEdition(TextEdition *te)
                 if (i == te->prevCursorPos || i == te->cursorPos || state != ci->prevState || pos.x != ci->prevX || pos.y != ci->prevY || buf[0] != ci->prevC)
                 {
                     surf = TE_RenderText(buf, *te, state);
-                    if (te->blitStyle != TE_BLITSTYLE_SHADED)
-                        SDL_BlitSurface(te->tmpSurfSave, &pos, te->tmpSurf, &pos);
-                    SDL_BlitSurface(surf, NULL, te->tmpSurf, &pos);
+
+                    if (HasBlitRGBAStyle(te->style))
+                    {
+                        SDL_FillRect(te->tmpSurf, &pos, SDL_MapRGBA(te->tmpSurf->format, 0,0,0, SDL_ALPHA_TRANSPARENT));
+                        BlitRGBA(surf, NULL, te->tmpSurf, &pos);
+                    }
+                    else
+                    {
+                        if (te->blitStyle != TE_BLITSTYLE_SHADED)
+                            SDL_BlitSurface(te->tmpSurfSave, &pos, te->tmpSurf, &pos);
+                        SDL_BlitSurface(surf, NULL, te->tmpSurf, &pos);
+                    }
+
                     SDL_FreeSurface(surf);
                 }
 
@@ -295,7 +382,11 @@ int TE_DisplayTextEdition(TextEdition *te)
         pos.y = lci->y + te->offsetY;
         pos.h = te->hSpace;
         if ((pos.w = te->pos.w - pos.x)>0)
-            SDL_BlitSurface(te->tmpSurfSave, &pos, te->tmpSurf, &pos);
+        {
+            if (HasBlitRGBAStyle(te->style))
+                SDL_FillRect(te->tmpSurf, &pos, SDL_MapRGBA(te->tmpSurf->format, 0,0,0, SDL_ALPHA_TRANSPARENT));
+            else SDL_BlitSurface(te->tmpSurfSave, &pos, te->tmpSurf, &pos);
+        }
 
         if (fci)
         {
@@ -303,7 +394,11 @@ int TE_DisplayTextEdition(TextEdition *te)
             pos.y = fci->y + te->offsetY;
             pos.h = te->hSpace;
             if ((pos.w = fci->x + te->offsetX)>0)
-                SDL_BlitSurface(te->tmpSurfSave, &pos, te->tmpSurf, &pos);
+            {
+                if (HasBlitRGBAStyle(te->style))
+                    SDL_FillRect(te->tmpSurf, &pos, SDL_MapRGBA(te->tmpSurf->format, 0,0,0, SDL_ALPHA_TRANSPARENT));
+                else SDL_BlitSurface(te->tmpSurfSave, &pos, te->tmpSurf, &pos);
+            }
         }
 
         for (; te->tab[l][c].c ; c++)
@@ -314,13 +409,21 @@ int TE_DisplayTextEdition(TextEdition *te)
     pos.x = 0;
     pos.w = te->pos.w;
     if ((pos.h = te->pos.h - pos.y)>0)
-        SDL_BlitSurface(te->tmpSurfSave, &pos, te->tmpSurf, &pos);
+    {
+        if (HasBlitRGBAStyle(te->style))
+            SDL_FillRect(te->tmpSurf, &pos, SDL_MapRGBA(te->tmpSurf->format, 0,0,0, SDL_ALPHA_TRANSPARENT));
+        else SDL_BlitSurface(te->tmpSurfSave, &pos, te->tmpSurf, &pos);
+    }
 
     pos.y = 0;
     pos.x = 0;
     pos.w = te->pos.w;
     if ((pos.h = upY)>0)
-        SDL_BlitSurface(te->tmpSurfSave, &pos, te->tmpSurf, &pos);
+    {
+        if (HasBlitRGBAStyle(te->style))
+            SDL_FillRect(te->tmpSurf, &pos, SDL_MapRGBA(te->tmpSurf->format, 0,0,0, SDL_ALPHA_TRANSPARENT));
+        else SDL_BlitSurface(te->tmpSurfSave, &pos, te->tmpSurf, &pos);
+    }
 
     for (; l<te->numLines ; l++)
     {
@@ -334,12 +437,13 @@ int TE_DisplayTextEdition(TextEdition *te)
 
     DisplayScrollBars(te);
 
-    SDL_BlitSurface(te->tmpSurf, NULL, te->blitSurf, &(te->pos));
+    BlitRGBA(te->tmpSurf, NULL, te->blitSurf, &(te->pos));
 
+    TE_UnlockEdition(te);
     return 1;
 }
 
-int DisplayCursor(TextEdition te)
+static int DisplayCursor(TextEdition te)
 {
     int c,l;
     SDL_Rect pos, rect = te.pos;
@@ -363,7 +467,7 @@ int DisplayCursor(TextEdition te)
     {
         surf = SDL_CreateRGBSurface(SDL_HWSURFACE, 1, TTF_FontHeight(te.font), 32, 0,0,0,0);
         SDL_FillRect(surf, 0, SDL_MapRGB(surf->format, te.colorFG.r, te.colorFG.g, te.colorFG.b));
-        SDL_BlitSurface(surf, NULL, te.tmpSurf, &pos);
+        BlitRGBA(surf, NULL, te.tmpSurf, &pos);
         SDL_FreeSurface(surf);
 
         return 1;
@@ -371,17 +475,17 @@ int DisplayCursor(TextEdition te)
     else return 0;
 }
 
-int DisplayScrollBars(TextEdition *te)
+static int DisplayScrollBars(TextEdition *te)
 {
     if (te->HScrollBar)
-        SDL_BlitSurface(te->HScrollBar, NULL, te->tmpSurf, &(te->posHSB));
+        BlitRGBA(te->HScrollBar, NULL, te->tmpSurf, &(te->posHSB));
     if (te->VScrollBar)
-        SDL_BlitSurface(te->VScrollBar, NULL, te->tmpSurf, &(te->posVSB));
+        BlitRGBA(te->VScrollBar, NULL, te->tmpSurf, &(te->posVSB));
 
     return 1;
 }
 
-int SetHSBFromOffset(TextEdition *te)
+static int SetHSBFromOffset(TextEdition *te)
 {
     int w = te->pos.w - VSBWidth(*te),
         length = te->xmax == 0 ? w : (w * te->pos.w) / te->xmax;
@@ -406,7 +510,7 @@ int SetHSBFromOffset(TextEdition *te)
     }
 }
 
-int SetVSBFromOffset(TextEdition *te)
+static int SetVSBFromOffset(TextEdition *te)
 {
     int h = te->pos.h - HSBHeight(*te),
         length = (h * te->pos.h) / (te->tab[te->lastLine][0].y + te->hSpace);
@@ -432,7 +536,7 @@ int SetVSBFromOffset(TextEdition *te)
     }
 }
 
-int SetOffsetFromHSB(TextEdition *te)
+static int SetOffsetFromHSB(TextEdition *te)
 {
     int w = te->pos.w - VSBWidth(*te);
 
@@ -448,7 +552,7 @@ int SetOffsetFromHSB(TextEdition *te)
     return 1;
 }
 
-int SetOffsetFromVSB(TextEdition *te)
+static int SetOffsetFromVSB(TextEdition *te)
 {
     int h = te->pos.h - HSBHeight(*te);
     double z = te->tab[te->lastLine][0].y + te->hSpace - h;
@@ -469,16 +573,22 @@ int SetOffsetFromVSB(TextEdition *te)
 
 int TE_HoldTextEdition(TextEdition *te, SDL_Event event)
 {
-    int d1 = HoldCursorPosition(te, event),
-        d2 = HoldKeyPressing(te, event);
+    int d1, d2;
+
+    if (!TE_LockEdition(te, TE_FULL_ACCESS))
+        return 0;
+
+    d1 = HoldCursorPosition(te, event);
+    d2 = HoldKeyPressing(te, event);
 
     if (d1 || d2)
         OffsetCorrection(te);
 
+    TE_UnlockEdition(te);
     return 1;
 }
 
-int HoldKeyPressing(TextEdition *te, SDL_Event event)
+static int HoldKeyPressing(TextEdition *te, SDL_Event event)
 {
     char c, done=1;
     int ctrl, num;
@@ -548,7 +658,7 @@ int HoldKeyPressing(TextEdition *te, SDL_Event event)
     return done;
 }
 
-int HoldKeyPressing_Ctrl(TextEdition *te, SDL_Event event)
+static int HoldKeyPressing_Ctrl(TextEdition *te, SDL_Event event)
 {
     int done=0;
 
@@ -596,7 +706,7 @@ int HoldKeyPressing_Ctrl(TextEdition *te, SDL_Event event)
     return done;
 }
 
-int HoldCursorPosition(TextEdition *te, SDL_Event event)
+static int HoldCursorPosition(TextEdition *te, SDL_Event event)
 {
     int l,c,x,y,done=1,num,select=0;
     Uint8 *keyState = SDL_GetKeyState(&num);
@@ -725,7 +835,7 @@ int HoldCursorPosition(TextEdition *te, SDL_Event event)
     return done;
 }
 
-int HoldCursorPosition_Keyboard(TextEdition *te, SDL_Event event, int *l2, int *c2)
+static int HoldCursorPosition_Keyboard(TextEdition *te, SDL_Event event, int *l2, int *c2)
 {
     int l,c,done=1,ctrl,num;
     Uint8 *keyState = SDL_GetKeyState(&num);
@@ -805,7 +915,7 @@ int HoldCursorPosition_Keyboard(TextEdition *te, SDL_Event event, int *l2, int *
 }
 
 
-int OffsetCorrection(TextEdition *te)
+static int OffsetCorrection(TextEdition *te)
 {
     SDL_Rect pos, rect = te->pos;
     int c,l,doneX=1,doneY=1;
@@ -840,7 +950,7 @@ int OffsetCorrection(TextEdition *te)
 }
 
 
-int WordHead(const char text[], int i)
+static int WordHead(const char text[], int i)
 {
     if (!text)
         return -1;
@@ -854,14 +964,14 @@ int WordHead(const char text[], int i)
     return 0;
 }
 
-int LineLength(CharInfo line[])
+static int LineLength(TE_CharInfo line[])
 {
     int i;
     for (i=0 ; IsCharOK(line[i].c) ; i++);
     return i;
 }
 
-void GetPositionInEdition(TextEdition te, int i, int *l2, int *c2)
+static void GetPositionInEdition(TextEdition te, int i, int *l2, int *c2)
 {
     int c=0, l, done = 0;
 
@@ -884,7 +994,7 @@ void GetPositionInEdition(TextEdition te, int i, int *l2, int *c2)
         *l2 = l;
 }
 
-int GetPositionInText(TextEdition te, int l2, int c2)
+static int GetPositionInText(TextEdition te, int l2, int c2)
 {
     int c, l, i=0;
 
@@ -897,7 +1007,7 @@ int GetPositionInText(TextEdition te, int l2, int c2)
     return i;
 }
 
-int GetLineFromYPosition(TextEdition te, int y)
+static int GetLineFromYPosition(TextEdition te, int y)
 {
     int l, lmax=te.numLines-1;
 
@@ -906,7 +1016,7 @@ int GetLineFromYPosition(TextEdition te, int y)
     return l>lmax ? lmax: (l<0 ? 0:l);
 }
 
-int GetCharFromXPosition(TextEdition te, int l, int x)
+static int GetCharFromXPosition(TextEdition te, int l, int x)
 {
     int i;
     if (!te.tab[l])
@@ -920,21 +1030,21 @@ int GetCharFromXPosition(TextEdition te, int l, int x)
     return i;
 }
 
-int NewLetter(CharInfo **tab, int l, int c)
+static int NewLetter(TE_CharInfo **tab, int l, int c)
 {
     int i = c;
-    CharInfo *ptr;
+    TE_CharInfo *ptr;
 
     for (; tab[l][i].c ; i++);
-    ptr = malloc(sizeof(CharInfo)*(i+2));
+    ptr = malloc(sizeof(TE_CharInfo)*(i+2));
     if (!ptr)
         return 0;
 
     for(i++ ; i>c ; i--)
-        memcpy(ptr+i, &(tab[l][i-1]), sizeof(CharInfo));
+        memcpy(ptr+i, &(tab[l][i-1]), sizeof(TE_CharInfo));
     (ptr+i)->prevC = '\0';
     for(i-- ; i>=0 ; i--)
-        memcpy(ptr+i, &(tab[l][i]), sizeof(CharInfo));
+        memcpy(ptr+i, &(tab[l][i]), sizeof(TE_CharInfo));
 
     free(tab[l]);
     tab[l] = ptr;
@@ -942,18 +1052,18 @@ int NewLetter(CharInfo **tab, int l, int c)
     return 1;
 }
 
-int NewLine(TextEdition *te, int l)
+static int NewLine(TextEdition *te, int l)
 {
     int i;
-    CharInfo **tab;
+    TE_CharInfo **tab;
 
-    tab = malloc(sizeof(CharInfo*)*(++ te->numLines));
+    tab = malloc(sizeof(TE_CharInfo*)*(++ te->numLines));
     if (!tab)
         return 0;
 
     for(i = te->numLines-1 ; i>l ; i--)
         tab[i] = te->tab[i-1];
-    tab[i] = malloc(sizeof(CharInfo));
+    tab[i] = malloc(sizeof(TE_CharInfo));
     if (!tab[i])
     {
         free(tab);
@@ -970,7 +1080,7 @@ int NewLine(TextEdition *te, int l)
     return 1;
 }
 
-int DimLetter(TextEdition te, char c, int *w, int *h)
+static int DimLetter(TextEdition te, char c, int *w, int *h)
 {
     char buf[2] = "";
     SDL_Surface *surface;
@@ -987,7 +1097,7 @@ int DimLetter(TextEdition te, char c, int *w, int *h)
     return 1;
 }
 
-int WidthWord(TextEdition te, int i)
+static int WidthWord(TextEdition te, int i)
 {
     int j, w=0;
     for (j=i ; IsCharOK(te.text[j]) && te.text[j] != ' ' && te.text[j] != '.' && te.text[j] != ',' && te.text[j] != '-' && te.text[j] != '\n' ; j++)
@@ -1021,16 +1131,8 @@ SDL_Surface* TE_RenderText(const char text[], TextEdition te, int inverted)
     return NULL;
 }
 
-SDL_Color ColorInverse(SDL_Color color)
-{
-    color.r = 255-color.r;
-    color.g = 255-color.g;
-    color.b = 255-color.b;
-    return color;
-}
 
-
-int DeleteChar(char text[], unsigned int pos)
+static int DeleteChar(char text[], unsigned int pos)
 {
     if (pos >= strlen(text))
         return 0;
@@ -1038,7 +1140,7 @@ int DeleteChar(char text[], unsigned int pos)
     return 1;
 }
 
-int InsertChar(char text[], unsigned int pos, char c, unsigned int lengthMax)
+static int InsertChar(char text[], unsigned int pos, char c, unsigned int lengthMax)
 {
     char *buf;
     unsigned int l = strlen(text);
@@ -1054,7 +1156,7 @@ int InsertChar(char text[], unsigned int pos, char c, unsigned int lengthMax)
     return 1;
 }
 
-int InsertString(char text[], unsigned int pos, char string[], unsigned int lengthMax)
+static int InsertString(char text[], unsigned int pos, char string[], unsigned int lengthMax)
 {
     char *buf;
     unsigned int l1 = strlen(text),
@@ -1071,7 +1173,7 @@ int InsertString(char text[], unsigned int pos, char string[], unsigned int leng
     return 1;
 }
 
-int DeleteSelection(TextEdition *te)
+static int DeleteSelection(TextEdition *te)
 {
     int begin = te->selection.begin,
         end = te->selection.end;
@@ -1135,44 +1237,8 @@ void TE_Quit(void)
     TE_initialized = 0;
 }
 
-SDL_Cursor* CreateCursor(const char *image[])   //Creates a cursor from XPM data. Provided by the SDL documentation.
-{
-  int i, row, col;
-  Uint8 data[4*16];
-  Uint8 mask[4*16];
-  int hot_x, hot_y;
 
-  i = -1;
-  for ( row=0; row<16; ++row ) {
-    for ( col=0; col<16; ++col ) {
-      if ( col % 8 ) {
-        data[i] <<= 1;
-        mask[i] <<= 1;
-      } else {
-        ++i;
-        data[i] = mask[i] = 0;
-      }
-      switch (image[4+row][col]) {
-        case '+':
-          data[i] |= 0x01;
-          mask[i] |= 0x01;
-          break;
-        case '.':
-          mask[i] |= 0x01;
-          break;
-        case ' ':
-          break;
-        default:
-          break;
-      }
-    }
-  }
-  sscanf(image[4+row], "%d,%d", &hot_x, &hot_y);
-  return SDL_CreateCursor(data, mask, 16, 16, hot_x, hot_y);
-}
-
-
-int SetHSBLength(TextEdition *te, int length)
+static int SetHSBLength(TextEdition *te, int length)
 {
     SDL_Rect rect = {0,0,0,0};
 
@@ -1212,7 +1278,7 @@ int SetHSBLength(TextEdition *te, int length)
 }
 
 
-int SetVSBLength(TextEdition *te, int length)
+static int SetVSBLength(TextEdition *te, int length)
 {
     SDL_Rect rect = {0,0,0,0};
 
@@ -1252,7 +1318,7 @@ int SetVSBLength(TextEdition *te, int length)
 }
 
 
-int IsMouseOverHSB(TextEdition te, int x, int y)
+static int IsMouseOverHSB(TextEdition te, int x, int y)
 {
     SDL_Rect pt, rect = te.posHSB;
 
@@ -1268,7 +1334,7 @@ int IsMouseOverHSB(TextEdition te, int x, int y)
     return IsInRect(pt,rect);
 }
 
-int IsMouseOverVSB(TextEdition te, int x, int y)
+static int IsMouseOverVSB(TextEdition te, int x, int y)
 {
     SDL_Rect pt, rect = te.posVSB;
 
@@ -1284,20 +1350,229 @@ int IsMouseOverVSB(TextEdition te, int x, int y)
     return IsInRect(pt,rect);
 }
 
+
+
+static SDL_Color ColorInverse(SDL_Color color)
+{
+    color.r = 255-color.r;
+    color.g = 255-color.g;
+    color.b = 255-color.b;
+    return color;
+}
+
+static SDL_Cursor* CreateCursor(const char *image[])   //Creates a cursor from XPM data. Provided by the SDL documentation.
+{
+  int i, row, col;
+  Uint8 data[4*16];
+  Uint8 mask[4*16];
+  int hot_x, hot_y;
+
+  i = -1;
+  for ( row=0; row<16; ++row ) {
+    for ( col=0; col<16; ++col ) {
+      if ( col % 8 ) {
+        data[i] <<= 1;
+        mask[i] <<= 1;
+      } else {
+        ++i;
+        data[i] = mask[i] = 0;
+      }
+      switch (image[4+row][col]) {
+        case '+':
+          data[i] |= 0x01;
+          mask[i] |= 0x01;
+          break;
+        case '.':
+          mask[i] |= 0x01;
+          break;
+        case ' ':
+          break;
+        default:
+          break;
+      }
+    }
+  }
+  sscanf(image[4+row], "%d,%d", &hot_x, &hot_y);
+  return SDL_CreateCursor(data, mask, 16, 16, hot_x, hot_y);
+}
+
+static int BlitRGBA(SDL_Surface *srcSurf, SDL_Rect *srcRect0, SDL_Surface *dstSurf, SDL_Rect *dstRect0)
+{
+    SDL_Rect srcRect = {0, 0, 0, 0},
+             dstRect = {0, 0, 0, 0};
+    int x, y,
+        srcHasAlpha, dstHasAlpha,
+        srcHasGlobalAlpha, srcHasColorKey;
+    double x1, y1, x2, y2, p;
+    Uint8 r1,g1,b1,a1,
+          r2,g2,b2,a2;
+    Uint32 pixel;
+
+    if (!dstSurf || !srcSurf)
+        return -1;
+
+    srcHasAlpha = srcSurf->format->Amask != 0 && (srcSurf->flags & SDL_SRCALPHA) == SDL_SRCALPHA;
+    dstHasAlpha = dstSurf->format->Amask != 0 && (dstSurf->flags & SDL_SRCALPHA) == SDL_SRCALPHA;
+    srcHasGlobalAlpha = (srcSurf->flags & SDL_SRCALPHA) == SDL_SRCALPHA && srcSurf->format->alpha != SDL_ALPHA_OPAQUE;
+    srcHasColorKey = (srcSurf->flags & SDL_SRCCOLORKEY) == SDL_SRCCOLORKEY;
+
+    if ((!dstHasAlpha && !srcHasGlobalAlpha && !srcHasColorKey) || !srcHasAlpha)
+        return SDL_BlitSurface(srcSurf, srcRect0, dstSurf, dstRect0);
+
+    if (srcRect0)
+        srcRect = *srcRect0;
+    else
+    {
+        srcRect.w = srcSurf->w;
+        srcRect.h = srcSurf->h;
+    }
+
+    if (dstRect0)
+        dstRect = *dstRect0;
+
+    if (srcRect.x < 0)
+        srcRect.x = 0;
+    if (srcRect.y < 0)
+        srcRect.y = 0;
+
+    SDL_LockSurface(dstSurf);
+    SDL_LockSurface(srcSurf);
+    for (x=0 ; x < srcRect.w ; x++)
+    {
+        if (x+srcRect.x < srcSurf->w && x+dstRect.x < dstSurf->w && x+dstRect.x >= 0)
+        {
+            for (y=0 ; y < srcRect.h ; y++)
+            {
+                if (y+srcRect.y < srcSurf->h && y+dstRect.y < dstSurf->h && y+dstRect.y >= 0)
+                {
+                    a1 = SDL_ALPHA_OPAQUE;
+                    pixel = GetPixel(srcSurf, x+srcRect.x, y+srcRect.y);
+                    if (srcHasAlpha)
+                        SDL_GetRGBA(pixel, srcSurf->format, &r1, &g1, &b1, &a1);
+                    else SDL_GetRGB(pixel, srcSurf->format, &r1, &g1, &b1);
+
+                    SDL_GetRGBA(GetPixel(dstSurf, x+dstRect.x, y+dstRect.y), dstSurf->format, &r2, &g2, &b2, &a2);
+
+                    if (srcHasColorKey && srcSurf->format->colorkey == pixel)
+                        a1 = SDL_ALPHA_TRANSPARENT;
+                    else if (srcHasGlobalAlpha)
+                        a1 *= srcSurf->format->alpha / 255.0;
+
+                    y1 = a1/255.0; x1 = 1-y1;
+                    y2 = a2/255.0; x2 = 1-y2;
+                    p = a2 == 0 ? (a1==0 ? 0 : 1) : 1 - pow(x1, 1/y2);
+
+                    PutPixel(dstSurf, x+dstRect.x, y+dstRect.y,
+                            SDL_MapRGBA(dstSurf->format, p*r1+(1-p)*r2, p*g1+(1-p)*g2, p*b1+(1-p)*b2, 255*(1-x1*x2) ) );
+                }
+            }
+        }
+    }
+    SDL_UnlockSurface(dstSurf);
+    SDL_UnlockSurface(srcSurf);
+
+    return 0;
+}
+
+/*
+ * Return the pixel value at (x, y)
+ * NOTE: The surface must be locked before calling this!
+ */
+static Uint32 GetPixel(SDL_Surface *surface, int x, int y)
+{
+    int bpp = surface->format->BytesPerPixel;
+    /* Here p is the address to the pixel we want to retrieve */
+    Uint8 *p = (Uint8 *)surface->pixels + y * surface->pitch + x * bpp;
+
+    switch(bpp) {
+        case 1:
+            return *p;
+
+        case 2:
+            return *(Uint16 *)p;
+
+        case 3:
+            #if (SDL_BYTEORDER == SDL_BIG_ENDIAN)
+            return p[0] << 16 | p[1] << 8 | p[2];
+            #else
+            return p[0] | p[1] << 8 | p[2] << 16;
+            #endif
+
+        case 4:
+            return *(Uint32 *)p;
+
+        default:
+            return 0;       /* shouldn't happen, but avoids warnings */
+    }
+}
+
+/*
+ * Set the pixel at (x, y) to the given value
+ * NOTE: The surface must be locked before calling this!
+ */
+static void PutPixel(SDL_Surface *surface, int x, int y, Uint32 pixel)
+{
+    int bpp = surface->format->BytesPerPixel;
+    /* Here p is the address to the pixel we want to set */
+    Uint8 *p = (Uint8 *)surface->pixels + y * surface->pitch + x * bpp;
+
+    switch(bpp) {
+        case 1:
+            *p = pixel;
+            break;
+
+        case 2:
+            *(Uint16 *)p = pixel;
+            break;
+
+        case 3:
+            #if (SDL_BYTEORDER == SDL_BIG_ENDIAN)
+            p[0] = (pixel >> 16) & 0xff;
+            p[1] = (pixel >> 8) & 0xff;
+            p[2] = pixel & 0xff;
+            #else
+            p[0] = pixel & 0xff;
+            p[1] = (pixel >> 8) & 0xff;
+            p[2] = (pixel >> 16) & 0xff;
+            #endif
+            break;
+
+        case 4:
+            *(Uint32 *)p = pixel;
+            break;
+        default:
+            break;
+    }
+}
+
+
+
+
+
+
+
 int TE_SetEditionText(TextEdition *te, const char text[])
 {
     char *buf;
 
-    if (!text || !(buf = malloc(sizeof(char)*(strlen(text)+1))) )
+    if (!te || !text || !(buf = malloc(sizeof(char)*(strlen(text)+1))) )
         return -1;
 
+    if (!TE_LockEdition(te, TE_ACCESS_WRITE))
+    {
+        free(buf);
+        return -1;
+    }
+
     strcpy(buf, text);
-    DeleteAllChars(buf, '\r');
+    DeleteAllChars(buf, INVALID_CHAR);
 
     strncpy(te->text, buf, te->textLength);
     free(buf);
 
     TE_UpdateTextEdition(te, 0);
+
+    TE_UnlockEdition(te);
     return strlen(te->text);
 }
 
@@ -1316,27 +1591,89 @@ int DeleteAllChars(char text[], char c)
 
 int TE_SetFocusEdition(TextEdition *te, int focus)
 {
-	te->focus = focus;
-	return 1;
+	if (!te || !TE_LockEdition(te, TE_ACCESS_WRITE))
+        return -1;
+
+    te->focus = focus;
+
+	TE_UnlockEdition(te);
+    return 1;
 }
 
 int TE_GetFocusEdition(TextEdition *te)
 {
-	return te->focus;
+	int focus;
+
+	if (!te || !TE_LockEdition(te, TE_ACCESS_READ))
+        return -1;
+
+    focus = te->focus;
+
+    TE_UnlockEdition(te);
+    return focus;
 }
 
 int TE_SetCursorPos(TextEdition *te, int cursorPos)
 {
-    if (cursorPos >= 0 && cursorPos <= strlen(te->text))
+    if (!te || !TE_LockEdition(te, TE_FULL_ACCESS))
+        return -1;
+
+    if (cursorPos >= 0 && cursorPos <= (int)strlen(te->text))
     {
         te->cursorPos = cursorPos;
         OffsetCorrection(te);
+        TE_UnlockEdition(te);
         return 1;
     }
-    else return 0;
+
+    TE_UnlockEdition(te);
+    return 0;
 }
 
 int TE_GetCursorPos(TextEdition *te)
 {
-    return te->cursorPos;
+    int cursorPos;
+
+    if (!te || !TE_LockEdition(te, TE_ACCESS_READ))
+        return -1;
+
+    cursorPos = te->cursorPos;
+
+    TE_UnlockEdition(te);
+    return cursorPos;
+}
+
+int TE_LockEdition(TextEdition *te, Uint32 access)
+{
+    if (!te)
+        return 0;
+
+    if ((access & TE_ACCESS_WRITE) == TE_ACCESS_WRITE)
+    {
+        if (te->idWriterThread != 0 && te->idWriterThread != SDL_ThreadID())
+            return 0;
+        te->idWriterThread = SDL_ThreadID();
+    }
+
+    else if ((access & TE_ACCESS_READ) == TE_ACCESS_READ)
+    {
+        if (te->idWriterThread != 0 && te->idWriterThread != SDL_ThreadID())
+            return 0;
+        te->nbReaders = te->nbReaders >= 0 ? te->nbReaders+1 : 1;
+    }
+
+    return 1;
+}
+
+int TE_UnlockEdition(TextEdition *te)
+{
+    if (!te)
+        return 0;
+
+    if (te->idWriterThread == SDL_ThreadID())
+        te->idWriterThread = 0;
+    else if (te->nbReaders > 0)
+        te->nbReaders--;
+
+    return 1;
 }

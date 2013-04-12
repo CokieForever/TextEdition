@@ -1,7 +1,7 @@
 #include "textedition.h"
 
 
-int main (void)
+int main (int argc, char *argv[])
 {
     TextEdition te;
     SDL_Rect pos, posZero = {0,0,0,0};
@@ -10,6 +10,9 @@ int main (void)
     SDL_Surface *screen, *background;
     SDL_Event event;
     int done = 0;
+
+    //To avoid warnings
+    argc++; argv++;
 
     if ( SDL_Init( SDL_INIT_VIDEO ) < 0 )
     {

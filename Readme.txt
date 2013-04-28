@@ -1,3 +1,15 @@
+-----------------------------------------------------------------
+TextEdition - A C library for the creation of text boxes with SDL
+-----------------------------------------------------------------
+
+Author: Cokie (cokie.forever@gmail.com)
+Version: 0.15 beta (April 12th, 2013)
+Operating systems: Windows, Linux
+License: GNU GPL v2.0 (see the LICENSE.txt file or http://www.gnu.org/licenses/gpl-2.0.html)
+
+
+Main function description:
+
 int TE_NewTextEdition(TextEdition *te, int length, SDL_Rect pos, TTF_Font *font, SDL_Color colorFG, int style)
 
 Creates a text box (called "Text Edition") with different parameters such as the position and the dimensions, the font, the color, and more.

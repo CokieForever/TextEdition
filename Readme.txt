@@ -71,6 +71,9 @@ When you no longer need the Text Edition, use the function TE_DeleteEdition() to
 If you are using Text Editions in a multithreading context, you should include "ttf_secure.h" in "textedition.h" and all files which can make calls to the SDL_ttf library. Moreover, you should use TE_LockEdition() and TE_UnlockEdition() functions before directly accessing and/or modifying TextEditions. Once again, it is recommended to use only the provided functions to modify the Text Editions.
 
 
+See http://ikturm.wordpress.com/projects-2/current-projects/textedition/ for more information.
+
+
 
 
 

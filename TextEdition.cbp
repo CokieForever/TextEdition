@@ -30,19 +30,19 @@
 			<Add option="-Wextra" />
 			<Add option="-Wall" />
 			<Add option="-Wwrite-strings -Wstrict-prototypes" />
-			<Add directory="C:/Program Files (x86)/CodeBlocks/lib/SDL/SDL-1.2.15/include/SDL" />
-			<Add directory="C:/Program Files (x86)/CodeBlocks/lib/SDL_image/SDL_image-1.2.12/inc" />
-			<Add directory="C:/Program Files (x86)/CodeBlocks/lib/SDL_ttf/SDL_ttf-2.0.11/inc" />
+			<Add directory="C:/Program Files (x86)/CodeBlocks/lib/SDL/SDL2-2.0.3/include" />
+			<Add directory="C:/Program Files (x86)/CodeBlocks/lib/SDL_image/SDL2_image-2.0.0/include" />
+			<Add directory="C:/Program Files (x86)/CodeBlocks/lib/SDL_ttf/SDL2_ttf-2.0.12/include" />
 		</Compiler>
 		<Linker>
 			<Add library="mingw32" />
-			<Add library="SDLmain" />
-			<Add library="SDL" />
-			<Add library="SDL_ttf" />
-			<Add library="SDL_image" />
-			<Add directory="C:/Program Files (x86)/CodeBlocks/lib/SDL/SDL-1.2.15/lib" />
-			<Add directory="C:/Program Files (x86)/CodeBlocks/lib/SDL_image/SDL_image-1.2.12/lib" />
-			<Add directory="C:/Program Files (x86)/CodeBlocks/lib/SDL_ttf/SDL_ttf-2.0.11/lib" />
+			<Add library="SDL2main" />
+			<Add library="SDL2" />
+			<Add library="SDL2_ttf" />
+			<Add library="SDL2_image" />
+			<Add directory="C:/Program Files (x86)/CodeBlocks/lib/SDL/SDL2-2.0.3/lib" />
+			<Add directory="C:/Program Files (x86)/CodeBlocks/lib/SDL_image/SDL2_image-2.0.0/lib" />
+			<Add directory="C:/Program Files (x86)/CodeBlocks/lib/SDL_ttf/SDL2_ttf-2.0.12/lib" />
 		</Linker>
 		<Unit filename="main.c">
 			<Option compilerVar="CC" />

@@ -74,6 +74,7 @@ static int SetVSBFromOffset(TextEdition *te);
 static int SetOffsetFromHSB(TextEdition *te);
 static int SetOffsetFromVSB(TextEdition *te);
 static int HoldKeyPressing(TextEdition *te, SDL_Event event);
+static int ConvertFromUtf8(wchar_t *wchar, const char *utf8char);
 static int HoldKeyPressing_Ctrl(TextEdition *te, SDL_Event event);
 static int HoldCursorPosition(TextEdition *te, SDL_Event event);
 static int HoldCursorPosition_Keyboard(TextEdition *te, SDL_Event event, int *l, int *c);
@@ -100,7 +101,7 @@ static int DeleteAllChars(char text[], char c);
 
 static SDL_Color ColorInverse(SDL_Color color);
 static SDL_Cursor* CreateCursor(const char *image[]);
-static int BlitRGBA(SDL_Surface *srcSurf, SDL_Rect *srcRect0, SDL_Surface *dstSurf, SDL_Rect *dstRect0);
+static int BlitRGBA(SDL_Surface *srcSurf, SDL_Rect *srcRect0, SDL_Surface *dstSurf, SDL_Rect *dstRect0, int ownBlit);
 static Uint32 GetPixel(SDL_Surface *surface, int x, int y);
 static void PutPixel(SDL_Surface *surface, int x, int y, Uint32 pixel);
 
@@ -110,7 +111,7 @@ static SDL_Cursor *TE_EditionCursor = NULL,
 static char *TE_clipBoard = NULL;
 
 
-int TE_NewTextEdition(TextEdition *te, int length, SDL_Rect pos, TTF_Font *font, SDL_Color colorFG, int style)
+int TE_NewTextEdition(TextEdition *te, int length, SDL_Rect pos, TTF_Font *font, SDL_Color colorFG, int style, SDL_Renderer *renderer)
 {
     int w, h, i;
     SDL_Rect pos2;
@@ -118,7 +119,7 @@ int TE_NewTextEdition(TextEdition *te, int length, SDL_Rect pos, TTF_Font *font,
     if (!TE_initialized)
         TE_Init();
 
-    if (!te || !font || length <= 0)
+    if (!te || !font || length <= 0 || !renderer)
         return 0;
 
     te->idWriterThread = 0;
@@ -136,6 +137,7 @@ int TE_NewTextEdition(TextEdition *te, int length, SDL_Rect pos, TTF_Font *font,
     te->font = font;
     te->colorFG = colorFG;
     te->style = style;
+    te->renderer = renderer;
 
 
     te->HScrollBar = NULL;
@@ -163,13 +165,20 @@ int TE_NewTextEdition(TextEdition *te, int length, SDL_Rect pos, TTF_Font *font,
         te->colorBGSelect = te->colorFG;
         te->colorFGSelect = te->colorBG;
     }
-    if (!te->blitSurf)
-        te->blitSurf = SDL_GetVideoSurface();
     /*te->blitSurfPos.x = 0;
     te->blitSurfPos.y = 0;*/
 
-    te->tab = malloc(sizeof(TE_CharInfo*));
-    te->tab[0] = malloc(sizeof(TE_CharInfo));
+    if ( !(te->tab = malloc(sizeof(TE_CharInfo*))) )
+    {
+        free(te->text); te->text = NULL;
+        return 0;
+    }
+    if ( !(te->tab[0] = malloc(sizeof(TE_CharInfo))) )
+    {
+        free(te->text); te->text = NULL;
+        free(te->tab);
+        return 0;
+    }
     memset(&(te->tab[0][0]),0,sizeof(TE_CharInfo));
     te->numLines = 1;
     te->lastLine = 0;
@@ -200,19 +209,9 @@ int TE_NewTextEdition(TextEdition *te, int length, SDL_Rect pos, TTF_Font *font,
     pos.x = 0;
     pos.y = 0;
     pos2 = te->pos;
-    if (HasBlitRGBAStyle(te->style))
-    {
-        te->tmpSurf = SDL_CreateRGBSurface(SDL_HWSURFACE, pos2.w, pos2.h, 32, RED_MASK,GREEN_MASK,BLUE_MASK,ALPHA_MASK);
-        SDL_FillRect(te->tmpSurf, NULL, SDL_MapRGBA(te->tmpSurf->format, 0,0,0, SDL_ALPHA_TRANSPARENT));
-        te->tmpSurfSave = NULL;
-    }
-    else
-    {
-        te->tmpSurf = SDL_CreateRGBSurface(SDL_HWSURFACE, pos2.w, pos2.h, 32, 0,0,0,0);
-        SDL_BlitSurface(te->blitSurf, &pos2, te->tmpSurf, &pos);
-        te->tmpSurfSave = SDL_CreateRGBSurface(SDL_HWSURFACE, pos2.w, pos2.h, 32, 0,0,0,0);
-        SDL_BlitSurface(te->blitSurf, &pos2, te->tmpSurfSave, &pos);
-    }
+
+    te->tmpSurf = SDL_CreateRGBSurface(0, pos2.w, pos2.h, 32, RED_MASK,GREEN_MASK,BLUE_MASK,ALPHA_MASK);
+    SDL_FillRect(te->tmpSurf, NULL, SDL_MapRGBA(te->tmpSurf->format, 0,0,0, SDL_ALPHA_TRANSPARENT));
 
     TE_UnlockEdition(te);
     return 1;
@@ -230,7 +229,7 @@ int TE_DeleteTextEdition(TextEdition *te)
     te->text = NULL,
     te->textLength = 0;
 
-    if (te->blitSurf && te->blitSurf != SDL_GetVideoSurface())
+    if (te->blitSurf)
         SDL_FreeSurface(te->blitSurf);
     te->blitSurf = NULL;
 
@@ -334,7 +333,7 @@ int TE_UpdateTextEdition(TextEdition *te, int i)
 
 int TE_DisplayTextEdition(TextEdition *te)
 {
-    int l, c, state, i=0, upY = -1, downY = -1;
+    int l, c, r=1, state, i=0, upY = -1, downY = -1;
     char buf[2] = "";
     SDL_Rect pos, rect = te->pos;
     SDL_Surface *surf;
@@ -368,17 +367,8 @@ int TE_DisplayTextEdition(TextEdition *te)
                 {
                     surf = TE_RenderText(buf, *te, state);
 
-                    if (HasBlitRGBAStyle(te->style))
-                    {
-                        SDL_FillRect(te->tmpSurf, &pos, SDL_MapRGBA(te->tmpSurf->format, 0,0,0, SDL_ALPHA_TRANSPARENT));
-                        BlitRGBA(surf, NULL, te->tmpSurf, &pos);
-                    }
-                    else
-                    {
-                        if (te->blitStyle != TE_BLITSTYLE_SHADED)
-                            SDL_BlitSurface(te->tmpSurfSave, &pos, te->tmpSurf, &pos);
-                        SDL_BlitSurface(surf, NULL, te->tmpSurf, &pos);
-                    }
+                    SDL_FillRect(te->tmpSurf, &pos, SDL_MapRGBA(te->tmpSurf->format, 0,0,0, SDL_ALPHA_TRANSPARENT));
+                    BlitRGBA(surf, NULL, te->tmpSurf, &pos, HasBlitRGBAStyle(te->style));
 
                     SDL_FreeSurface(surf);
                 }
@@ -408,11 +398,7 @@ int TE_DisplayTextEdition(TextEdition *te)
         pos.y = lci->y + te->offsetY;
         pos.h = te->hSpace;
         if ((pos.w = te->pos.w - pos.x)>0)
-        {
-            if (HasBlitRGBAStyle(te->style))
-                SDL_FillRect(te->tmpSurf, &pos, SDL_MapRGBA(te->tmpSurf->format, 0,0,0, SDL_ALPHA_TRANSPARENT));
-            else SDL_BlitSurface(te->tmpSurfSave, &pos, te->tmpSurf, &pos);
-        }
+            SDL_FillRect(te->tmpSurf, &pos, SDL_MapRGBA(te->tmpSurf->format, 0,0,0, SDL_ALPHA_TRANSPARENT));
 
         if (fci)
         {
@@ -420,11 +406,7 @@ int TE_DisplayTextEdition(TextEdition *te)
             pos.y = fci->y + te->offsetY;
             pos.h = te->hSpace;
             if ((pos.w = fci->x + te->offsetX)>0)
-            {
-                if (HasBlitRGBAStyle(te->style))
-                    SDL_FillRect(te->tmpSurf, &pos, SDL_MapRGBA(te->tmpSurf->format, 0,0,0, SDL_ALPHA_TRANSPARENT));
-                else SDL_BlitSurface(te->tmpSurfSave, &pos, te->tmpSurf, &pos);
-            }
+                SDL_FillRect(te->tmpSurf, &pos, SDL_MapRGBA(te->tmpSurf->format, 0,0,0, SDL_ALPHA_TRANSPARENT));
         }
 
         for (; te->tab[l][c].c ; c++)
@@ -435,21 +417,13 @@ int TE_DisplayTextEdition(TextEdition *te)
     pos.x = 0;
     pos.w = te->pos.w;
     if ((pos.h = te->pos.h - pos.y)>0)
-    {
-        if (HasBlitRGBAStyle(te->style))
-            SDL_FillRect(te->tmpSurf, &pos, SDL_MapRGBA(te->tmpSurf->format, 0,0,0, SDL_ALPHA_TRANSPARENT));
-        else SDL_BlitSurface(te->tmpSurfSave, &pos, te->tmpSurf, &pos);
-    }
+        SDL_FillRect(te->tmpSurf, &pos, SDL_MapRGBA(te->tmpSurf->format, 0,0,0, SDL_ALPHA_TRANSPARENT));
 
     pos.y = 0;
     pos.x = 0;
     pos.w = te->pos.w;
     if ((pos.h = upY)>0)
-    {
-        if (HasBlitRGBAStyle(te->style))
-            SDL_FillRect(te->tmpSurf, &pos, SDL_MapRGBA(te->tmpSurf->format, 0,0,0, SDL_ALPHA_TRANSPARENT));
-        else SDL_BlitSurface(te->tmpSurfSave, &pos, te->tmpSurf, &pos);
-    }
+        SDL_FillRect(te->tmpSurf, &pos, SDL_MapRGBA(te->tmpSurf->format, 0,0,0, SDL_ALPHA_TRANSPARENT));
 
     for (; l<te->numLines ; l++)
     {
@@ -463,10 +437,21 @@ int TE_DisplayTextEdition(TextEdition *te)
 
     DisplayScrollBars(te);
 
-    BlitRGBA(te->tmpSurf, NULL, te->blitSurf, &(te->pos));
+    if (te->blitSurf)
+        BlitRGBA(te->tmpSurf, NULL, te->blitSurf, &(te->pos), HasBlitRGBAStyle(te->style));
+    else
+    {
+        SDL_Texture *t = SDL_CreateTextureFromSurface(te->renderer, te->tmpSurf);
+        if (t)
+        {
+            SDL_RenderCopy(te->renderer, t, NULL, &(te->pos));
+            SDL_DestroyTexture(t);
+        }
+        else r = 0;
+    }
 
     TE_UnlockEdition(te);
-    return 1;
+    return r;
 }
 
 static int DisplayCursor(TextEdition te)
@@ -491,9 +476,9 @@ static int DisplayCursor(TextEdition te)
 
     if (IsRectInRect(pos, rect))
     {
-        surf = SDL_CreateRGBSurface(SDL_HWSURFACE, 1, TTF_FontHeight(te.font), 32, 0,0,0,0);
+        surf = SDL_CreateRGBSurface(0, 1, TTF_FontHeight(te.font), 32, 0,0,0,0);
         SDL_FillRect(surf, 0, SDL_MapRGB(surf->format, te.colorFG.r, te.colorFG.g, te.colorFG.b));
-        BlitRGBA(surf, NULL, te.tmpSurf, &pos);
+        BlitRGBA(surf, NULL, te.tmpSurf, &pos, HasBlitRGBAStyle(te.style));
         SDL_FreeSurface(surf);
 
         return 1;
@@ -504,9 +489,9 @@ static int DisplayCursor(TextEdition te)
 static int DisplayScrollBars(TextEdition *te)
 {
     if (te->HScrollBar)
-        BlitRGBA(te->HScrollBar, NULL, te->tmpSurf, &(te->posHSB));
+        BlitRGBA(te->HScrollBar, NULL, te->tmpSurf, &(te->posHSB), HasBlitRGBAStyle(te->style));
     if (te->VScrollBar)
-        BlitRGBA(te->VScrollBar, NULL, te->tmpSurf, &(te->posVSB));
+        BlitRGBA(te->VScrollBar, NULL, te->tmpSurf, &(te->posVSB), HasBlitRGBAStyle(te->style));
 
     return 1;
 }
@@ -611,77 +596,120 @@ int TE_HoldTextEdition(TextEdition *te, SDL_Event event)
         OffsetCorrection(te);
 
     TE_UnlockEdition(te);
+
     return 1;
 }
 
 static int HoldKeyPressing(TextEdition *te, SDL_Event event)
 {
-    char c, done=1;
-    int ctrl, num;
-    Uint8 *keyState = SDL_GetKeyState(&num);
+    char c = 0, done=1;
+    int num;
+    const Uint8 *keyState = SDL_GetKeyboardState(&num);
+    SDL_Keycode sym = SDLK_a;
 
-    if (event.type != SDL_KEYDOWN || !te->focus || HasJustDisplayStyle(te->style))
+    if (!te->focus || HasJustDisplayStyle(te->style))
         return 0;
 
-    ctrl = SDLK_LCTRL<num && keyState[SDLK_LCTRL];
-
-    if (ctrl)
-        done = HoldKeyPressing_Ctrl(te, event);
-    else if (HasReadOnlyStyle(te->style))
-        return 0;
-    else
+    if (event.type == SDL_KEYDOWN)
     {
-        switch(event.key.keysym.sym)
-        {
-            case SDLK_DELETE:
-                if (te->selection.begin == te->selection.end)
-                    DeleteChar(te->text, te->cursorPos);
-                else DeleteSelection(te);
-                TE_UpdateTextEdition(te, 0);
-                break;
-            case SDLK_BACKSPACE:
-                if (te->selection.begin == te->selection.end)
-                {
-                    if (te->cursorPos > 0)
-                        DeleteChar(te->text, -- te->cursorPos);
-                }
-                else DeleteSelection(te);
-                TE_UpdateTextEdition(te, 0);
-                break;
-            case SDLK_INSERT:
-                te->insert = !te->insert;
-                break;
-            case SDLK_RETURN:
-            case SDLK_KP_ENTER:
-                event.key.keysym.unicode = '\n';
-            default:
-                if (event.key.keysym.unicode)
-                {
-                    if (event.key.keysym.unicode<256)
-                        c = event.key.keysym.unicode;
-                    else c = '?';
+        if (SDL_SCANCODE_LCTRL<num && keyState[SDL_SCANCODE_LCTRL])
+            return HoldKeyPressing_Ctrl(te, event);
+        sym = event.key.keysym.sym;
+    }
+    else if (event.type == SDL_TEXTINPUT)
+    {
+        wchar_t wchar;
+        ConvertFromUtf8(&wchar, event.text.text);
+        c = wchar < 256 ? wchar : '?';
+    }
+    else return 0;
 
-                    if (te->selection.begin != te->selection.end)
-                        DeleteSelection(te);
-                    if (te->insert)
+    if (HasReadOnlyStyle(te->style))
+        return 0;
+
+    switch(sym)
+    {
+        case SDLK_DELETE:
+            if (te->selection.begin == te->selection.end)
+                DeleteChar(te->text, te->cursorPos);
+            else DeleteSelection(te);
+            TE_UpdateTextEdition(te, 0);
+            break;
+        case SDLK_BACKSPACE:
+            if (te->selection.begin == te->selection.end)
+            {
+                if (te->cursorPos > 0)
+                    DeleteChar(te->text, -- te->cursorPos);
+            }
+            else DeleteSelection(te);
+            TE_UpdateTextEdition(te, 0);
+            break;
+        case SDLK_INSERT:
+            te->insert = !te->insert;
+            break;
+        case SDLK_RETURN:
+        case SDLK_KP_ENTER:
+            c = '\n';
+        default:
+            if (c)
+            {
+                if (te->selection.begin != te->selection.end)
+                    DeleteSelection(te);
+                if (te->insert)
+                {
+                    if (!InsertChar(te->text, te->cursorPos, c, te->textLength))
                     {
-                        if (!InsertChar(te->text, te->cursorPos, c, te->textLength))
-                        {
-                            done = 0;
-                            te->cursorPos--;
-                        }
+                        done = 0;
+                        te->cursorPos--;
                     }
-                    else te->text[te->cursorPos] = c;
-                    TE_UpdateTextEdition(te, 0);
-                    te->cursorPos++;
                 }
-                else done = 0;
-
-                break;
-        }
+                else te->text[te->cursorPos] = c;
+                TE_UpdateTextEdition(te, 0);
+                te->cursorPos++;
+            }
+            break;
     }
 
     return done;
+}
+
+//From http://web.mit.edu/darwin/src/modules/OpenLDAP/OpenLDAP/libraries/libldap/utf-8-conv.c
+static int ConvertFromUtf8 (wchar_t *wchar, const char *utf8char)
+{
+	const unsigned char mask[] = { 0, 0x7f, 0x1f, 0x0f, 0x07, 0x03, 0x01 };
+	int utflen, i;
+	wchar_t ch;
+
+	/* If input ptr is NULL, treat it as empty string. */
+	if (utf8char == NULL)
+		utf8char = "";
+
+	/* Get UTF-8 sequence length from 1st byte */
+	utflen = 1;
+	if (((unsigned char)utf8char[0]) >> 5 == 6)
+        utflen = 2;
+    else if (((unsigned char)utf8char[0]) >> 4 == 14)
+        utflen = 3;
+    else if (((unsigned char)utf8char[0]) >> 3 == 30)
+        utflen = 4;
+
+	/* First byte minus length tag */
+	ch = (wchar_t)(utf8char[0] & mask[utflen]);
+
+	for(i=1; i < utflen; i++)
+	{
+		/* Subsequent bytes must start with 10 */
+		if ((utf8char[i] & 0xc0) != 0x80)
+			return -1;
+
+		ch <<= 6;			/* 6 bits of data in each subsequent byte */
+		ch |= (wchar_t)(utf8char[i] & 0x3f);
+	}
+
+	if (wchar)
+		*wchar = ch;
+
+	return utflen;
 }
 
 static int HoldKeyPressing_Ctrl(TextEdition *te, SDL_Event event)
@@ -720,7 +748,7 @@ static int HoldKeyPressing_Ctrl(TextEdition *te, SDL_Event event)
                 }
             }
             break;
-        case 'q':
+        case 'a':
             te->selection.begin = 0;
             te->selection.end = strlen(te->text);
         default:
@@ -735,7 +763,7 @@ static int HoldKeyPressing_Ctrl(TextEdition *te, SDL_Event event)
 static int HoldCursorPosition(TextEdition *te, SDL_Event event)
 {
     int l,c,x,y,done=1,num,select=0;
-    Uint8 *keyState = SDL_GetKeyState(&num);
+    const Uint8 *keyState = SDL_GetKeyboardState(&num);
     SDL_Rect pt, rect = te->pos;
 
     rect.x += te->blitSurfPos.x;
@@ -743,7 +771,7 @@ static int HoldCursorPosition(TextEdition *te, SDL_Event event)
     rect.w -= VSBWidth(*te);
     rect.h -= HSBHeight(*te);
 
-    select = SDLK_LSHIFT<num && keyState[SDLK_LSHIFT];
+    select = SDL_SCANCODE_LSHIFT<num && keyState[SDL_SCANCODE_LSHIFT];
 
     switch(event.type)
     {
@@ -789,6 +817,21 @@ static int HoldCursorPosition(TextEdition *te, SDL_Event event)
             }
             break;
 
+        case SDL_MOUSEWHEEL:
+            if (te->focus && event.wheel.y != 0)
+            {
+                te->offsetY += /*(event.wheel.direction == SDL_MOUSEWHEEL_NORMAL ? 1 : -1) * */event.wheel.y * te->hSpace;
+                SetVSBFromOffset(te);
+            }
+            if (te->focus && event.wheel.x != 0)
+            {
+                te->offsetX += /*(event.wheel.direction == SDL_MOUSEWHEEL_NORMAL ? 1 : -1) * */event.wheel.x * te->hSpace;
+                SetHSBFromOffset(te);
+            }
+
+            done = 0;
+            break;
+
         case SDL_MOUSEBUTTONDOWN:
             if (event.button.button == SDL_BUTTON_LEFT)
             {
@@ -814,22 +857,6 @@ static int HoldCursorPosition(TextEdition *te, SDL_Event event)
                     done = 0;
                 }
             }
-            else
-            {
-                if (te->focus && event.button.button == SDL_BUTTON_WHEELDOWN)
-                {
-                    te->offsetY -= te->hSpace;
-                    SetVSBFromOffset(te);
-                }
-                else if (te->focus && event.button.button == SDL_BUTTON_WHEELUP)
-                {
-                    te->offsetY += te->hSpace;
-                    SetVSBFromOffset(te);
-                }
-
-                done = 0;
-            }
-
             break;
 
         case SDL_MOUSEBUTTONUP:
@@ -864,12 +891,12 @@ static int HoldCursorPosition(TextEdition *te, SDL_Event event)
 static int HoldCursorPosition_Keyboard(TextEdition *te, SDL_Event event, int *l2, int *c2)
 {
     int l,c,done=1,ctrl,num;
-    Uint8 *keyState = SDL_GetKeyState(&num);
+    const Uint8 *keyState = SDL_GetKeyboardState(&num);
 
     if (event.type != SDL_KEYDOWN || !te->focus)
         return 0;
 
-    ctrl = SDLK_LCTRL<num && keyState[SDLK_LCTRL];
+    ctrl = SDL_SCANCODE_LCTRL<num && keyState[SDL_SCANCODE_LCTRL];
 
     GetPositionInEdition(*te, te->cursorPos, &l, &c);
     switch (event.key.keysym.sym)
@@ -1246,9 +1273,9 @@ int TE_Init(void)
       "7,7"
     };
 
-    SDL_EnableUNICODE(1);
     TE_EditionCursor = CreateCursor(data);
     TE_NormalCursor = SDL_GetCursor();
+    SDL_StartTextInput();
 
     TE_initialized = 1;
 
@@ -1277,7 +1304,7 @@ static int SetHSBLength(TextEdition *te, int length)
     if (te->HScrollBar)
         SDL_FreeSurface(te->HScrollBar);
 
-    if (!(te->HScrollBar = SDL_CreateRGBSurface(SDL_HWSURFACE, length, 10, 32, RED_MASK, GREEN_MASK, BLUE_MASK, ALPHA_MASK)))
+    if (!(te->HScrollBar = SDL_CreateRGBSurface(0, length, 10, 32, RED_MASK, GREEN_MASK, BLUE_MASK, ALPHA_MASK)))
         return 0;
 
     SDL_FillRect(te->HScrollBar, NULL, SDL_MapRGBA(te->HScrollBar->format, 0, 0, 0, SDL_ALPHA_TRANSPARENT));
@@ -1299,8 +1326,6 @@ static int SetHSBLength(TextEdition *te, int length)
     rect.y++;
     SDL_FillRect(te->HScrollBar, &rect, SDL_MapRGBA(te->HScrollBar->format, 255, 0, 0, 20));
 
-    SDL_SetAlpha(te->HScrollBar, SDL_SRCALPHA, SDL_ALPHA_OPAQUE);
-
     return 1;
 }
 
@@ -1317,7 +1342,7 @@ static int SetVSBLength(TextEdition *te, int length)
     if (te->VScrollBar)
         SDL_FreeSurface(te->VScrollBar);
 
-    if (!(te->VScrollBar = SDL_CreateRGBSurface(SDL_HWSURFACE, 10, length, 32, RED_MASK, GREEN_MASK, BLUE_MASK, ALPHA_MASK)))
+    if (!(te->VScrollBar = SDL_CreateRGBSurface(0, 10, length, 32, RED_MASK, GREEN_MASK, BLUE_MASK, ALPHA_MASK)))
         return 0;
 
     SDL_FillRect(te->VScrollBar, NULL, SDL_MapRGBA(te->VScrollBar->format, 0, 0, 0, SDL_ALPHA_TRANSPARENT));
@@ -1338,8 +1363,6 @@ static int SetVSBLength(TextEdition *te, int length)
 
     rect.x++;
     SDL_FillRect(te->VScrollBar, &rect, SDL_MapRGBA(te->VScrollBar->format, 255, 0, 0, 20));
-
-    SDL_SetAlpha(te->VScrollBar, SDL_SRCALPHA, SDL_ALPHA_OPAQUE);
 
     return 1;
 }
@@ -1423,8 +1446,11 @@ static SDL_Cursor* CreateCursor(const char *image[])   //Creates a cursor from X
   return SDL_CreateCursor(data, mask, 16, 16, hot_x, hot_y);
 }
 
-static int BlitRGBA(SDL_Surface *srcSurf, SDL_Rect *srcRect0, SDL_Surface *dstSurf, SDL_Rect *dstRect0)
+static int BlitRGBA(SDL_Surface *srcSurf, SDL_Rect *srcRect0, SDL_Surface *dstSurf, SDL_Rect *dstRect0, int ownBlit)
 {
+    if (!ownBlit)
+        return SDL_BlitSurface(srcSurf, srcRect0, dstSurf, dstRect0);
+
     SDL_Rect srcRect = {0},
              dstRect = {0};
     int x, y,
@@ -1435,13 +1461,23 @@ static int BlitRGBA(SDL_Surface *srcSurf, SDL_Rect *srcRect0, SDL_Surface *dstSu
           r2,g2,b2,a2;
     Uint32 pixel;
 
+    SDL_BlendMode blendMode = SDL_BLENDMODE_NONE;
+    Uint8 alpha = SDL_ALPHA_OPAQUE;
+    Uint32 colorKey = 0;
+
     if (!dstSurf || !srcSurf)
         return -1;
 
-    srcHasAlpha = srcSurf->format->Amask != 0 && (srcSurf->flags & SDL_SRCALPHA) == SDL_SRCALPHA;
-    dstHasAlpha = dstSurf->format->Amask != 0 && (dstSurf->flags & SDL_SRCALPHA) == SDL_SRCALPHA;
-    srcHasGlobalAlpha = (srcSurf->flags & SDL_SRCALPHA) == SDL_SRCALPHA && srcSurf->format->alpha != SDL_ALPHA_OPAQUE;
-    srcHasColorKey = (srcSurf->flags & SDL_SRCCOLORKEY) == SDL_SRCCOLORKEY;
+    SDL_GetSurfaceBlendMode(srcSurf, &blendMode);
+    srcHasAlpha = srcSurf->format->Amask != 0 && blendMode == SDL_BLENDMODE_BLEND;
+
+    SDL_GetSurfaceAlphaMod(srcSurf, &alpha);
+    srcHasGlobalAlpha = alpha != SDL_ALPHA_OPAQUE && blendMode == SDL_BLENDMODE_BLEND;
+
+    srcHasColorKey = SDL_GetColorKey(srcSurf, &colorKey) != -1;
+
+    SDL_GetSurfaceBlendMode(dstSurf, &blendMode);
+    dstHasAlpha = dstSurf->format->Amask != 0 && blendMode == SDL_BLENDMODE_BLEND;
 
     if ((!dstHasAlpha && !srcHasGlobalAlpha && !srcHasColorKey) || !srcHasAlpha)
         return SDL_BlitSurface(srcSurf, srcRect0, dstSurf, dstRect0);
@@ -1480,10 +1516,10 @@ static int BlitRGBA(SDL_Surface *srcSurf, SDL_Rect *srcRect0, SDL_Surface *dstSu
 
                     SDL_GetRGBA(GetPixel(dstSurf, x+dstRect.x, y+dstRect.y), dstSurf->format, &r2, &g2, &b2, &a2);
 
-                    if (srcHasColorKey && srcSurf->format->colorkey == pixel)
+                    if (srcHasColorKey && colorKey == pixel)
                         a1 = SDL_ALPHA_TRANSPARENT;
                     else if (srcHasGlobalAlpha)
-                        a1 *= srcSurf->format->alpha / 255.0;
+                        a1 *= alpha / 255.0;
 
                     y1 = a1/255.0; x1 = 1-y1;
                     y2 = a2/255.0; x2 = 1-y2;

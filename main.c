@@ -28,7 +28,10 @@ int main (int argc, char *argv[])
     SDL_Rect pos;
     TTF_Font *font;
     SDL_Color color;
-    SDL_Surface *screen, *background;
+    SDL_Window *screen;
+    SDL_Renderer *renderer;
+    SDL_Surface *background;
+    SDL_Texture *bgTexture;
     SDL_Event event;
     int done = 0;
 
@@ -37,7 +40,7 @@ int main (int argc, char *argv[])
 
     if ( SDL_Init( SDL_INIT_VIDEO ) < 0 )
     {
-        printf( "Unable to init SDL: %s\n", SDL_GetError() );
+        fprintf(stderr, "Unable to init SDL: %s\n", SDL_GetError() );
         return EXIT_FAILURE;
     }
     atexit(SDL_Quit);
@@ -56,17 +59,18 @@ int main (int argc, char *argv[])
     }
     atexit(IMG_Quit);
 
-
-    screen = SDL_SetVideoMode(640, 480, 16, SDL_HWSURFACE|SDL_DOUBLEBUF);
-    if ( !screen )
+    if ( SDL_CreateWindowAndRenderer(640, 480, 0, &screen, &renderer) == -1)
     {
-        printf("Unable to set 640x480 video: %s\n", SDL_GetError());
-        return 1;
+        fprintf(stderr, "Unable to set 640x480 video: %s\n", SDL_GetError());
+        return EXIT_FAILURE;
     }
-    SDL_WM_SetCaption("TextEdition", NULL);
+    SDL_SetWindowTitle(screen, "TextEdition");
 
     if ( (background = IMG_Load("ImageFond.png")) )
-        SDL_BlitSurface(background, NULL, screen, NULL);
+    {
+        bgTexture = SDL_CreateTextureFromSurface(renderer, background);
+        SDL_FreeSurface(background);
+    }
 
     pos.x = 50; pos.y = 140;
     pos.w = 525; pos.h = 275;
@@ -75,7 +79,7 @@ int main (int argc, char *argv[])
     memset(&te, 0, sizeof(TextEdition));
     te.blitStyle = TE_BLITSTYLE_BLENDED;
     te.colorBG = color;
-    TE_NewTextEdition(&te, 5000, pos, font, color, TE_STYLE_MULTILINE | TE_STYLE_HSCROLL | TE_STYLE_VSCROLL | TE_STYLE_BLITRGBA);
+    TE_NewTextEdition(&te, 5000, pos, font, color, TE_STYLE_MULTILINE | TE_STYLE_HSCROLL | TE_STYLE_VSCROLL | TE_STYLE_BLITRGBA, renderer);
 
     TE_SetEditionText(&te, "\
 Français (complet)\n\
@@ -106,7 +110,6 @@ A typical text box is a rectangle of any size, possibly with a border that separ
 It is common for the mouse cursor to change its shape when it hovers over a text box."
     );
 
-    SDL_EnableKeyRepeat(SDL_DEFAULT_REPEAT_DELAY, SDL_DEFAULT_REPEAT_INTERVAL);
     while (!done)
     {
         SDL_WaitEvent(&event);
@@ -127,23 +130,21 @@ It is common for the mouse cursor to change its shape when it hovers over a text
 
         if (!done)
         {
-            if (background)
-                SDL_BlitSurface(background, NULL, screen, NULL);
+            if (bgTexture)
+                SDL_RenderCopy(renderer, bgTexture, NULL, NULL);
             else
-                SDL_FillRect(screen, NULL, SDL_MapRGB(screen->format, 0,0,0));
+                SDL_RenderClear(renderer);
 
             TE_HoldTextEdition(&te, event);
             TE_DisplayTextEdition(&te);
 
-            SDL_Flip(screen);
+            SDL_RenderPresent(renderer);
         }
     }
 
     TE_DeleteTextEdition(&te);
     TE_Quit();
     TTF_CloseFont(font);
-    if (background)
-        SDL_FreeSurface(background);
     printf("Exited cleanly\n");
     return EXIT_SUCCESS;
 }

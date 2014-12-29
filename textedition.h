@@ -23,6 +23,10 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 
 #define TEXTEDITION
 #include <stdlib.h>
+#include <stdio.h>
+#include <string.h>
+#include <ctype.h>
+#include <wchar.h>
 #include <math.h>
 #include <SDL.h>
 #include <SDL_image.h>
@@ -70,6 +74,7 @@ typedef struct
     TTF_Font *font;
     SDL_Color colorFG;
     int style;
+    SDL_Renderer *renderer;
 
     //advanced
     int blitStyle, hSpace;
@@ -94,7 +99,7 @@ typedef struct
 int TE_Init(void);
 void TE_Quit(void);
 
-int TE_NewTextEdition(TextEdition *te, int length, SDL_Rect pos, TTF_Font *font, SDL_Color colorFG, int style);
+int TE_NewTextEdition(TextEdition *te, int length, SDL_Rect pos, TTF_Font *font, SDL_Color colorFG, int style, SDL_Renderer *renderer);
 int TE_DeleteTextEdition(TextEdition *te);
 int TE_UpdateTextEdition(TextEdition *te, int i);
 int TE_DisplayTextEdition(TextEdition *te);

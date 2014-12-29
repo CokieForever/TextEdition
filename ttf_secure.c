@@ -1,7 +1,7 @@
 /*
 
 TextEdition - A C library for the creation of text boxes with SDL
-Copyright (C) 2013 Cokie (cokie.forever@gmail.com)
+Copyright (C) 2014 Cokie (cokie.forever@gmail.com)
 
 This program is free software; you can redistribute it and/or
 modify it under the terms of the GNU General Public License

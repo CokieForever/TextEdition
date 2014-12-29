@@ -1,7 +1,7 @@
 /*
 
 TextEdition - A C library for the creation of text boxes with SDL
-Copyright (C) 2013 Cokie (cokie.forever@gmail.com)
+Copyright (C) 2014 Cokie (cokie.forever@gmail.com)
 
 This program is free software; you can redistribute it and/or
 modify it under the terms of the GNU General Public License
@@ -41,11 +41,6 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 #define TE_BLITSTYLE_BLENDED    1
 #define TE_BLITSTYLE_SHADED     2
 #define TE_BLITSTYLE_SOLID      3
-
-#define TE_NO_ACCESS            0x00000000
-#define TE_ACCESS_READ          0x00000001
-#define TE_ACCESS_WRITE         0x00000010
-#define TE_FULL_ACCESS          0x00000011
 
 
 typedef struct
@@ -89,7 +84,7 @@ typedef struct
     int offsetX, offsetY, xmax;
     int focus, insert, HSBCaught, VSBCaught, anchorHSB, anchorVSB;
     Uint32 idWriterThread;
-    int nbReaders;
+    SDL_mutex *lockUnlockMutex, *writerMutex;
     TE_Interval selection;
     SDL_Surface *tmpSurf, *tmpSurfSave, *HScrollBar, *VScrollBar;
     SDL_Rect posHSB, posVSB;
@@ -112,7 +107,7 @@ int TE_GetFocusEdition(TextEdition *te);
 int TE_SetCursorPos(TextEdition *te, int cursorPos);
 int TE_GetCursorPos(TextEdition *te);
 
-int TE_LockEdition(TextEdition *te, Uint32 access);
+int TE_LockEdition(TextEdition *te);
 int TE_UnlockEdition(TextEdition *te);
 
 #endif

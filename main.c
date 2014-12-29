@@ -1,7 +1,7 @@
 /*
 
 TextEdition - A C library for the creation of text boxes with SDL
-Copyright (C) 2013 Cokie (cokie.forever@gmail.com)
+Copyright (C) 2014 Cokie (cokie.forever@gmail.com)
 
 This program is free software; you can redistribute it and/or
 modify it under the terms of the GNU General Public License
@@ -25,7 +25,7 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 int main (int argc, char *argv[])
 {
     TextEdition te;
-    SDL_Rect pos, posZero = {0,0,0,0};
+    SDL_Rect pos;
     TTF_Font *font;
     SDL_Color color;
     SDL_Surface *screen, *background;
@@ -66,7 +66,7 @@ int main (int argc, char *argv[])
     SDL_WM_SetCaption("TextEdition", NULL);
 
     if ( (background = IMG_Load("ImageFond.png")) )
-        SDL_BlitSurface(background, NULL, screen, &posZero);
+        SDL_BlitSurface(background, NULL, screen, NULL);
 
     pos.x = 50; pos.y = 140;
     pos.w = 525; pos.h = 275;
@@ -75,7 +75,7 @@ int main (int argc, char *argv[])
     memset(&te, 0, sizeof(TextEdition));
     te.blitStyle = TE_BLITSTYLE_BLENDED;
     te.colorBG = color;
-    TE_NewTextEdition(&te, 5000, pos, font, color, TE_STYLE_MULTILINE | TE_STYLE_HSCROLL | TE_STYLE_VSCROLL | TE_STYLE_JUSTDISPLAY);
+    TE_NewTextEdition(&te, 5000, pos, font, color, TE_STYLE_MULTILINE | TE_STYLE_HSCROLL | TE_STYLE_VSCROLL | TE_STYLE_BLITRGBA);
 
     TE_SetEditionText(&te, "\
 Français (complet)\n\
@@ -127,6 +127,11 @@ It is common for the mouse cursor to change its shape when it hovers over a text
 
         if (!done)
         {
+            if (background)
+                SDL_BlitSurface(background, NULL, screen, NULL);
+            else
+                SDL_FillRect(screen, NULL, SDL_MapRGB(screen->format, 0,0,0));
+
             TE_HoldTextEdition(&te, event);
             TE_DisplayTextEdition(&te);
 

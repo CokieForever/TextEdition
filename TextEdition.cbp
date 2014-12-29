@@ -7,8 +7,8 @@
 		<Option compiler="gcc" />
 		<Build>
 			<Target title="Debug">
-				<Option output="bin\Debug\te" prefix_auto="1" extension_auto="1" />
-				<Option object_output="obj\Debug\" />
+				<Option output="bin/Debug/te" prefix_auto="1" extension_auto="1" />
+				<Option object_output="obj/Debug/" />
 				<Option type="0" />
 				<Option compiler="gcc" />
 				<Compiler>
@@ -30,9 +30,9 @@
 			<Add option="-Wextra" />
 			<Add option="-Wall" />
 			<Add option="-Wwrite-strings -Wstrict-prototypes" />
-			<Add directory="C:\Program Files\CodeBlocks\lib\SDL\SDL-1.2.15\include\SDL" />
-			<Add directory="C:\Program Files\CodeBlocks\lib\SDL_image-1.2.12\include" />
-			<Add directory="C:\Program Files\CodeBlocks\lib\SDL_ttf-2.0.11\include" />
+			<Add directory="C:/Program Files (x86)/CodeBlocks/lib/SDL/SDL-1.2.15/include/SDL" />
+			<Add directory="C:/Program Files (x86)/CodeBlocks/lib/SDL_image/SDL_image-1.2.12/inc" />
+			<Add directory="C:/Program Files (x86)/CodeBlocks/lib/SDL_ttf/SDL_ttf-2.0.11/inc" />
 		</Compiler>
 		<Linker>
 			<Add library="mingw32" />
@@ -40,9 +40,9 @@
 			<Add library="SDL" />
 			<Add library="SDL_ttf" />
 			<Add library="SDL_image" />
-			<Add directory="C:\Program Files\CodeBlocks\lib\SDL\SDL-1.2.15\lib" />
-			<Add directory="C:\Program Files\CodeBlocks\lib\SDL_image-1.2.12\lib\x86" />
-			<Add directory="C:\Program Files\CodeBlocks\lib\SDL_ttf-2.0.11\lib\x86" />
+			<Add directory="C:/Program Files (x86)/CodeBlocks/lib/SDL/SDL-1.2.15/lib" />
+			<Add directory="C:/Program Files (x86)/CodeBlocks/lib/SDL_image/SDL_image-1.2.12/lib" />
+			<Add directory="C:/Program Files (x86)/CodeBlocks/lib/SDL_ttf/SDL_ttf-2.0.11/lib" />
 		</Linker>
 		<Unit filename="main.c">
 			<Option compilerVar="CC" />

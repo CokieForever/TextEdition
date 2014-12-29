@@ -1,7 +1,7 @@
 /*
 
 TextEdition - A C library for the creation of text boxes with SDL
-Copyright (C) 2013 Cokie (cokie.forever@gmail.com)
+Copyright (C) 2014 Cokie (cokie.forever@gmail.com)
 
 This program is free software; you can redistribute it and/or
 modify it under the terms of the GNU General Public License
@@ -110,7 +110,6 @@ static SDL_Cursor *TE_EditionCursor = NULL,
 static char *TE_clipBoard = NULL;
 
 
-
 int TE_NewTextEdition(TextEdition *te, int length, SDL_Rect pos, TTF_Font *font, SDL_Color colorFG, int style)
 {
     int w, h, i;
@@ -123,8 +122,10 @@ int TE_NewTextEdition(TextEdition *te, int length, SDL_Rect pos, TTF_Font *font,
         return 0;
 
     te->idWriterThread = 0;
-    te->nbReaders = 0;
-    TE_LockEdition(te, TE_FULL_ACCESS);
+    te->lockUnlockMutex = SDL_CreateMutex();
+    te->writerMutex = SDL_CreateMutex();
+    if (!TE_LockEdition(te))
+        return 0;
 
     te->textLength = length;
     te->text = malloc(sizeof(char)*(length+1));
@@ -221,7 +222,7 @@ int TE_DeleteTextEdition(TextEdition *te)
 {
     int l;
 
-    if (!TE_LockEdition(te, TE_FULL_ACCESS))
+    if (!TE_LockEdition(te))
         return 0;
 
     if (te->text)
@@ -260,6 +261,10 @@ int TE_DeleteTextEdition(TextEdition *te)
     te->VScrollBar = NULL;
 
     TE_UnlockEdition(te);
+    if (te->lockUnlockMutex)
+        SDL_DestroyMutex(te->lockUnlockMutex);
+    if (te->writerMutex)
+        SDL_DestroyMutex(te->writerMutex);
     return 1;
 }
 
@@ -268,7 +273,7 @@ int TE_UpdateTextEdition(TextEdition *te, int i)
 {
     int c, l, x, y, done=0;
 
-    if (!TE_LockEdition(te, TE_FULL_ACCESS))
+    if (!TE_LockEdition(te))
         return 0;
 
     i = WordHead(te->text, i-1);
@@ -335,7 +340,7 @@ int TE_DisplayTextEdition(TextEdition *te)
     SDL_Surface *surf;
     TE_CharInfo *ci, *fci, *lci;
 
-    if (!TE_LockEdition(te, TE_ACCESS_READ))
+    if (!TE_LockEdition(te))
         return 0;
 
     rect.x = 0; rect.y = 0;
@@ -596,7 +601,7 @@ int TE_HoldTextEdition(TextEdition *te, SDL_Event event)
 {
     int d1, d2;
 
-    if (!TE_LockEdition(te, TE_FULL_ACCESS))
+    if (!TE_LockEdition(te))
         return 0;
 
     d1 = HoldCursorPosition(te, event);
@@ -1255,6 +1260,7 @@ void TE_Quit(void)
     if (TE_EditionCursor)
         SDL_FreeCursor(TE_EditionCursor);
 
+    TE_EditionCursor = NULL;
     TE_initialized = 0;
 }
 
@@ -1419,8 +1425,8 @@ static SDL_Cursor* CreateCursor(const char *image[])   //Creates a cursor from X
 
 static int BlitRGBA(SDL_Surface *srcSurf, SDL_Rect *srcRect0, SDL_Surface *dstSurf, SDL_Rect *dstRect0)
 {
-    SDL_Rect srcRect = {0, 0, 0, 0},
-             dstRect = {0, 0, 0, 0};
+    SDL_Rect srcRect = {0},
+             dstRect = {0};
     int x, y,
         srcHasAlpha, dstHasAlpha,
         srcHasGlobalAlpha, srcHasColorKey;
@@ -1579,7 +1585,7 @@ int TE_SetEditionText(TextEdition *te, const char text[])
     if (!te || !text || !(buf = malloc(sizeof(char)*(strlen(text)+1))) )
         return -1;
 
-    if (!TE_LockEdition(te, TE_ACCESS_WRITE))
+    if (!TE_LockEdition(te))
     {
         free(buf);
         return -1;
@@ -1612,8 +1618,8 @@ int DeleteAllChars(char text[], char c)
 
 int TE_SetFocusEdition(TextEdition *te, int focus)
 {
-	if (!te || !TE_LockEdition(te, TE_ACCESS_WRITE))
-        return -1;
+	if (!te || !TE_LockEdition(te))
+        return 0;
 
     te->focus = focus;
 
@@ -1625,7 +1631,7 @@ int TE_GetFocusEdition(TextEdition *te)
 {
 	int focus;
 
-	if (!te || !TE_LockEdition(te, TE_ACCESS_READ))
+	if (!te || !TE_LockEdition(te))
         return -1;
 
     focus = te->focus;
@@ -1636,7 +1642,7 @@ int TE_GetFocusEdition(TextEdition *te)
 
 int TE_SetCursorPos(TextEdition *te, int cursorPos)
 {
-    if (!te || !TE_LockEdition(te, TE_FULL_ACCESS))
+    if (!te || !TE_LockEdition(te))
         return -1;
 
     if (cursorPos >= 0 && cursorPos <= (int)strlen(te->text))
@@ -1655,7 +1661,7 @@ int TE_GetCursorPos(TextEdition *te)
 {
     int cursorPos;
 
-    if (!te || !TE_LockEdition(te, TE_ACCESS_READ))
+    if (!te || !TE_LockEdition(te))
         return -1;
 
     cursorPos = te->cursorPos;
@@ -1664,37 +1670,40 @@ int TE_GetCursorPos(TextEdition *te)
     return cursorPos;
 }
 
-int TE_LockEdition(TextEdition *te, Uint32 access)
+int TE_LockEdition(TextEdition *te)
 {
-    if (!te)
+    if (!te || !te->lockUnlockMutex)
         return 0;
 
-    if ((access & TE_ACCESS_WRITE) == TE_ACCESS_WRITE)
+    SDL_LockMutex(te->lockUnlockMutex);
+
+    if (te->idWriterThread != SDL_ThreadID())
     {
-        if (te->idWriterThread != 0 && te->idWriterThread != SDL_ThreadID())
+        if (!te->writerMutex)
             return 0;
+        SDL_LockMutex(te->writerMutex);
         te->idWriterThread = SDL_ThreadID();
     }
 
-    else if ((access & TE_ACCESS_READ) == TE_ACCESS_READ)
-    {
-        if (te->idWriterThread != 0 && te->idWriterThread != SDL_ThreadID())
-            return 0;
-        te->nbReaders = te->nbReaders >= 0 ? te->nbReaders+1 : 1;
-    }
-
+    SDL_UnlockMutex(te->lockUnlockMutex);
     return 1;
 }
 
 int TE_UnlockEdition(TextEdition *te)
 {
-    if (!te)
+    if (!te || !te->lockUnlockMutex)
         return 0;
 
-    if (te->idWriterThread == SDL_ThreadID())
-        te->idWriterThread = 0;
-    else if (te->nbReaders > 0)
-        te->nbReaders--;
+    SDL_LockMutex(te->lockUnlockMutex);
 
+    if (te->idWriterThread == SDL_ThreadID())
+    {
+        if (!te->writerMutex)
+            return 0;
+        te->idWriterThread = 0;
+        SDL_UnlockMutex(te->writerMutex);
+    }
+
+    SDL_UnlockMutex(te->lockUnlockMutex);
     return 1;
 }

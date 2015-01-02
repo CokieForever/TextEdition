@@ -1,7 +1,7 @@
 /*
 
 TextEdition - A C library for the creation of text boxes with SDL
-Copyright (C) 2014 Cokie (cokie.forever@gmail.com)
+Copyright (C) 2015 Cokie (cokie.forever@gmail.com)
 
 This program is free software; you can redistribute it and/or
 modify it under the terms of the GNU General Public License
@@ -30,7 +30,6 @@ int main (int argc, char *argv[])
     SDL_Color color;
     SDL_Window *screen;
     SDL_Renderer *renderer;
-    SDL_Surface *background;
     SDL_Texture *bgTexture;
     SDL_Event event;
     int done = 0;
@@ -66,11 +65,7 @@ int main (int argc, char *argv[])
     }
     SDL_SetWindowTitle(screen, "TextEdition");
 
-    if ( (background = IMG_Load("ImageFond.png")) )
-    {
-        bgTexture = SDL_CreateTextureFromSurface(renderer, background);
-        SDL_FreeSurface(background);
-    }
+    bgTexture = IMG_LoadTexture(renderer, "ImageFond.png");
 
     pos.x = 50; pos.y = 140;
     pos.w = 525; pos.h = 275;

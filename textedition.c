@@ -1,7 +1,7 @@
 /*
 
 TextEdition - A C library for the creation of text boxes with SDL
-Copyright (C) 2014 Cokie (cokie.forever@gmail.com)
+Copyright (C) 2015 Cokie (cokie.forever@gmail.com)
 
 This program is free software; you can redistribute it and/or
 modify it under the terms of the GNU General Public License
@@ -66,6 +66,8 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 
 #define Ceil(x)                 ((x)>=0 ? ceil(x) : -ceil(-(x)) )
 
+#define IsMultiKeyChar(c)       ((c)=='~' || (c)=='^' || (c)=='`' || (c)=='¨')
+
 
 static int DisplayCursor(TextEdition te);
 static int DisplayScrollBars(TextEdition *te);
@@ -74,6 +76,7 @@ static int SetVSBFromOffset(TextEdition *te);
 static int SetOffsetFromHSB(TextEdition *te);
 static int SetOffsetFromVSB(TextEdition *te);
 static int HoldKeyPressing(TextEdition *te, SDL_Event event);
+static char GetMultiKeyComposition(char multiKeyChar, char c);
 static int ConvertFromUtf8(wchar_t *wchar, const char *utf8char);
 static int HoldKeyPressing_Ctrl(TextEdition *te, SDL_Event event);
 static int HoldCursorPosition(TextEdition *te, SDL_Event event);
@@ -101,7 +104,7 @@ static int DeleteAllChars(char text[], char c);
 
 static SDL_Color ColorInverse(SDL_Color color);
 static SDL_Cursor* CreateCursor(const char *image[]);
-static int BlitRGBA(SDL_Surface *srcSurf, SDL_Rect *srcRect0, SDL_Surface *dstSurf, SDL_Rect *dstRect0, int ownBlit);
+static int BlitRGBA(SDL_Surface *srcSurf, SDL_Rect *srcRect0, SDL_Surface *dstSurf, SDL_Point *dstPoint, int ownBlit);
 static Uint32 GetPixel(SDL_Surface *surface, int x, int y);
 static void PutPixel(SDL_Surface *surface, int x, int y, Uint32 pixel);
 
@@ -109,8 +112,9 @@ static int TE_initialized = 0;
 static SDL_Cursor *TE_EditionCursor = NULL,
                   *TE_NormalCursor = NULL;
 static char *TE_clipBoard = NULL;
+static char multiKeyPrevChar = 0;
 
-
+#define LoadFail(r) do {TE_UnlockEdition(te); TE_DeleteTextEdition(te); return r;} while (0)
 int TE_NewTextEdition(TextEdition *te, int length, SDL_Rect pos, TTF_Font *font, SDL_Color colorFG, int style, SDL_Renderer *renderer)
 {
     int w, h, i;
@@ -126,12 +130,19 @@ int TE_NewTextEdition(TextEdition *te, int length, SDL_Rect pos, TTF_Font *font,
     te->lockUnlockMutex = SDL_CreateMutex();
     te->writerMutex = SDL_CreateMutex();
     if (!TE_LockEdition(te))
+    {
+        if (te->lockUnlockMutex)
+            SDL_DestroyMutex(te->lockUnlockMutex);
+        if (te->writerMutex)
+            SDL_DestroyMutex(te->writerMutex);
         return 0;
+    }
 
     te->textLength = length;
     te->text = malloc(sizeof(char)*(length+1));
     if (!te->text)
-        return 0;
+        LoadFail(0);
+
     te->text[0] = '\0';
     te->pos = pos;
     te->font = font;
@@ -169,16 +180,9 @@ int TE_NewTextEdition(TextEdition *te, int length, SDL_Rect pos, TTF_Font *font,
     te->blitSurfPos.y = 0;*/
 
     if ( !(te->tab = malloc(sizeof(TE_CharInfo*))) )
-    {
-        free(te->text); te->text = NULL;
-        return 0;
-    }
+        LoadFail(0);
     if ( !(te->tab[0] = malloc(sizeof(TE_CharInfo))) )
-    {
-        free(te->text); te->text = NULL;
-        free(te->tab);
-        return 0;
-    }
+        LoadFail(0);
     memset(&(te->tab[0][0]),0,sizeof(TE_CharInfo));
     te->numLines = 1;
     te->lastLine = 0;
@@ -210,8 +214,14 @@ int TE_NewTextEdition(TextEdition *te, int length, SDL_Rect pos, TTF_Font *font,
     pos.y = 0;
     pos2 = te->pos;
 
-    te->tmpSurf = SDL_CreateRGBSurface(0, pos2.w, pos2.h, 32, RED_MASK,GREEN_MASK,BLUE_MASK,ALPHA_MASK);
+    if ( !(te->tmpSurf = SDL_CreateRGBSurface(0, pos2.w, pos2.h, 32, RED_MASK,GREEN_MASK,BLUE_MASK,ALPHA_MASK)) )
+        LoadFail(0);
     SDL_FillRect(te->tmpSurf, NULL, SDL_MapRGBA(te->tmpSurf->format, 0,0,0, SDL_ALPHA_TRANSPARENT));
+
+    Uint32 format = SDL_MasksToPixelFormatEnum(te->tmpSurf->format->BitsPerPixel, te->tmpSurf->format->Rmask, te->tmpSurf->format->Gmask, te->tmpSurf->format->Bmask, te->tmpSurf->format->Amask);
+    if ( !(te->texture = SDL_CreateTexture(renderer, format, SDL_TEXTUREACCESS_STREAMING, te->tmpSurf->w, te->tmpSurf->h)) )
+        LoadFail(0);
+    SDL_SetTextureBlendMode(te->texture, SDL_BLENDMODE_BLEND);
 
     TE_UnlockEdition(te);
     return 1;
@@ -248,9 +258,6 @@ int TE_DeleteTextEdition(TextEdition *te)
     if (te->tmpSurf)
         SDL_FreeSurface(te->tmpSurf);
     te->tmpSurf = NULL;
-    if (te->tmpSurfSave)
-        SDL_FreeSurface(te->tmpSurfSave);
-    te->tmpSurfSave = NULL;
 
     if (te->HScrollBar)
         SDL_FreeSurface(te->HScrollBar);
@@ -365,10 +372,11 @@ int TE_DisplayTextEdition(TextEdition *te)
             {
                 if (i == te->prevCursorPos || i == te->cursorPos || state != ci->prevState || pos.x != ci->prevX || pos.y != ci->prevY || buf[0] != ci->prevC)
                 {
+                    SDL_Point pt = {pos.x, pos.y};
                     surf = TE_RenderText(buf, *te, state);
 
                     SDL_FillRect(te->tmpSurf, &pos, SDL_MapRGBA(te->tmpSurf->format, 0,0,0, SDL_ALPHA_TRANSPARENT));
-                    BlitRGBA(surf, NULL, te->tmpSurf, &pos, HasBlitRGBAStyle(te->style));
+                    BlitRGBA(surf, NULL, te->tmpSurf, &pt, HasBlitRGBAStyle(te->style));
 
                     SDL_FreeSurface(surf);
                 }
@@ -438,14 +446,16 @@ int TE_DisplayTextEdition(TextEdition *te)
     DisplayScrollBars(te);
 
     if (te->blitSurf)
-        BlitRGBA(te->tmpSurf, NULL, te->blitSurf, &(te->pos), HasBlitRGBAStyle(te->style));
+    {
+        SDL_Point pt = {te->pos.x, te->pos.y};
+        BlitRGBA(te->tmpSurf, NULL, te->blitSurf, &pt, HasBlitRGBAStyle(te->style));
+    }
     else
     {
-        SDL_Texture *t = SDL_CreateTextureFromSurface(te->renderer, te->tmpSurf);
-        if (t)
+        if (te->texture)
         {
-            SDL_RenderCopy(te->renderer, t, NULL, &(te->pos));
-            SDL_DestroyTexture(t);
+            SDL_UpdateTexture(te->texture, NULL, te->tmpSurf->pixels, te->tmpSurf->pitch);
+            SDL_RenderCopy(te->renderer, te->texture, NULL, &(te->pos));
         }
         else r = 0;
     }
@@ -476,9 +486,10 @@ static int DisplayCursor(TextEdition te)
 
     if (IsRectInRect(pos, rect))
     {
+        SDL_Point pt = {pos.x, pos.y};
         surf = SDL_CreateRGBSurface(0, 1, TTF_FontHeight(te.font), 32, 0,0,0,0);
         SDL_FillRect(surf, 0, SDL_MapRGB(surf->format, te.colorFG.r, te.colorFG.g, te.colorFG.b));
-        BlitRGBA(surf, NULL, te.tmpSurf, &pos, HasBlitRGBAStyle(te.style));
+        BlitRGBA(surf, NULL, te.tmpSurf, &pt, HasBlitRGBAStyle(te.style));
         SDL_FreeSurface(surf);
 
         return 1;
@@ -620,7 +631,7 @@ static int HoldKeyPressing(TextEdition *te, SDL_Event event)
     {
         wchar_t wchar;
         ConvertFromUtf8(&wchar, event.text.text);
-        c = wchar < 256 ? wchar : '?';
+        c = ((unsigned int)wchar) < 256 ? wchar : '?';
     }
     else return 0;
 
@@ -655,6 +666,35 @@ static int HoldKeyPressing(TextEdition *te, SDL_Event event)
             {
                 if (te->selection.begin != te->selection.end)
                     DeleteSelection(te);
+
+                if (multiKeyPrevChar)
+                {
+                    char c2;
+                    if (c == ' ')
+                        c = multiKeyPrevChar;
+                    else if ( (c2 = GetMultiKeyComposition(multiKeyPrevChar, c)) )
+                        c = c2;
+                    else
+                    {
+                        if (te->insert)
+                        {
+                            if (!InsertChar(te->text, te->cursorPos, multiKeyPrevChar, te->textLength))
+                            {
+                                done = 0;
+                                te->cursorPos--;
+                            }
+                        }
+                        else te->text[te->cursorPos] = c;
+                        te->cursorPos++;
+                    }
+                    multiKeyPrevChar = 0;
+                }
+                else if (IsMultiKeyChar(c))
+                {
+                    multiKeyPrevChar = c;
+                    break;
+                }
+
                 if (te->insert)
                 {
                     if (!InsertChar(te->text, te->cursorPos, c, te->textLength))
@@ -671,6 +711,86 @@ static int HoldKeyPressing(TextEdition *te, SDL_Event event)
     }
 
     return done;
+}
+
+static char GetMultiKeyComposition(char multiKeyChar, char c)
+{
+    switch (multiKeyChar)
+    {
+        case '~':
+            if (c == 'n')
+                return 'ñ';
+            if (c == 'a')
+                return 'ã';
+            if (c == 'o')
+                return 'õ';
+            if (c == 'N')
+                return 'Ñ';
+            if (c == 'A')
+                return 'Ã';
+            if (c == 'O')
+                return 'Õ';
+            break;
+        case '^':
+            if (c == 'a')
+                return 'â';
+            if (c == 'e')
+                return 'ê';
+            if (c == 'u')
+                return 'û';
+            if (c == 'o')
+                return 'ô';
+            if (c == 'A')
+                return 'Â';
+            if (c == 'E')
+                return 'Ê';
+            if (c == 'U')
+                return 'Û';
+            if (c == 'O')
+                return 'Ô';
+            break;
+        case '`':
+            if (c == 'a')
+                return 'à';
+            if (c == 'e')
+                return 'è';
+            if (c == 'u')
+                return 'ù';
+            if (c == 'o')
+                return 'ò';
+            if (c == 'A')
+                return 'À';
+            if (c == 'E')
+                return 'È';
+            if (c == 'U')
+                return 'Ù';
+            if (c == 'O')
+                return 'Ò';
+            break;
+        case '¨':
+            if (c == 'a')
+                return 'ä';
+            if (c == 'e')
+                return 'ë';
+            if (c == 'u')
+                return 'ü';
+            if (c == 'o')
+                return 'ö';
+            if (c == 'y')
+                return 'ÿ';
+            if (c == 'A')
+                return 'Ä';
+            if (c == 'E')
+                return 'Ë';
+            if (c == 'U')
+                return 'Ü';
+            if (c == 'O')
+                return 'Ö';
+        default:
+            break;
+    }
+
+    return 0;
 }
 
 //From http://web.mit.edu/darwin/src/modules/OpenLDAP/OpenLDAP/libraries/libldap/utf-8-conv.c
@@ -1370,36 +1490,21 @@ static int SetVSBLength(TextEdition *te, int length)
 
 static int IsMouseOverHSB(TextEdition te, int x, int y)
 {
-    SDL_Rect pt, rect = te.posHSB;
-
     if (!te.HScrollBar)
         return 0;
-
-    pt.x = x - te.blitSurfPos.x - te.pos.x;
-    pt.y = y - te.blitSurfPos.y - te.pos.y;
-
-    rect.w = te.HScrollBar->w;
-    rect.h = te.HScrollBar->h;
-
+    SDL_Point pt = {x - te.blitSurfPos.x - te.pos.x, y - te.blitSurfPos.y - te.pos.y};
+    SDL_Rect rect = {te.posHSB.x, te.posHSB.y, te.HScrollBar->w, te.HScrollBar->h};
     return IsInRect(pt,rect);
 }
 
 static int IsMouseOverVSB(TextEdition te, int x, int y)
 {
-    SDL_Rect pt, rect = te.posVSB;
-
     if (!te.VScrollBar)
         return 0;
-
-    pt.x = x - te.blitSurfPos.x - te.pos.x;
-    pt.y = y - te.blitSurfPos.y - te.pos.y;
-
-    rect.w = te.VScrollBar->w;
-    rect.h = te.VScrollBar->h;
-
+    SDL_Point pt = {x - te.blitSurfPos.x - te.pos.x, y - te.blitSurfPos.y - te.pos.y};
+    SDL_Rect rect = {te.posVSB.x, te.posVSB.y, te.VScrollBar->w, te.VScrollBar->h};
     return IsInRect(pt,rect);
 }
-
 
 
 static SDL_Color ColorInverse(SDL_Color color)
@@ -1446,13 +1551,14 @@ static SDL_Cursor* CreateCursor(const char *image[])   //Creates a cursor from X
   return SDL_CreateCursor(data, mask, 16, 16, hot_x, hot_y);
 }
 
-static int BlitRGBA(SDL_Surface *srcSurf, SDL_Rect *srcRect0, SDL_Surface *dstSurf, SDL_Rect *dstRect0, int ownBlit)
+static int BlitRGBA(SDL_Surface *srcSurf, SDL_Rect *srcRect0, SDL_Surface *dstSurf, SDL_Point *dstPoint, int ownBlit)
 {
-    if (!ownBlit)
-        return SDL_BlitSurface(srcSurf, srcRect0, dstSurf, dstRect0);
+    SDL_Rect dstRect = {dstPoint ? dstPoint->x : 0, dstPoint ? dstPoint->y : 0, 0, 0};
 
-    SDL_Rect srcRect = {0},
-             dstRect = {0};
+    if (!ownBlit)
+        return SDL_BlitSurface(srcSurf, srcRect0, dstSurf, &dstRect);
+
+    SDL_Rect srcRect = {0};
     int x, y,
         srcHasAlpha, dstHasAlpha,
         srcHasGlobalAlpha, srcHasColorKey;
@@ -1480,7 +1586,7 @@ static int BlitRGBA(SDL_Surface *srcSurf, SDL_Rect *srcRect0, SDL_Surface *dstSu
     dstHasAlpha = dstSurf->format->Amask != 0 && blendMode == SDL_BLENDMODE_BLEND;
 
     if ((!dstHasAlpha && !srcHasGlobalAlpha && !srcHasColorKey) || !srcHasAlpha)
-        return SDL_BlitSurface(srcSurf, srcRect0, dstSurf, dstRect0);
+        return SDL_BlitSurface(srcSurf, srcRect0, dstSurf, &dstRect);
 
     if (srcRect0)
         srcRect = *srcRect0;
@@ -1489,9 +1595,6 @@ static int BlitRGBA(SDL_Surface *srcSurf, SDL_Rect *srcRect0, SDL_Surface *dstSu
         srcRect.w = srcSurf->w;
         srcRect.h = srcSurf->h;
     }
-
-    if (dstRect0)
-        dstRect = *dstRect0;
 
     if (srcRect.x < 0)
         srcRect.x = 0;
@@ -1716,8 +1819,13 @@ int TE_LockEdition(TextEdition *te)
     if (te->idWriterThread != SDL_ThreadID())
     {
         if (!te->writerMutex)
+        {
+            SDL_UnlockMutex(te->lockUnlockMutex);
             return 0;
+        }
+        SDL_UnlockMutex(te->lockUnlockMutex);
         SDL_LockMutex(te->writerMutex);
+        SDL_LockMutex(te->lockUnlockMutex);
         te->idWriterThread = SDL_ThreadID();
     }
 
@@ -1735,7 +1843,10 @@ int TE_UnlockEdition(TextEdition *te)
     if (te->idWriterThread == SDL_ThreadID())
     {
         if (!te->writerMutex)
+        {
+            SDL_UnlockMutex(te->lockUnlockMutex);
             return 0;
+        }
         te->idWriterThread = 0;
         SDL_UnlockMutex(te->writerMutex);
     }

@@ -3,7 +3,7 @@ TextEdition - A C library for the creation of text boxes with SDL
 -----------------------------------------------------------------
 
 Author: Cokie (cokie.forever@gmail.com)
-Version: 0.17 beta (Dec 29th, 2014)
+Version: 0.18 beta (Jan 2nd, 2014)
 Operating systems: Windows, Linux
 License: GNU GPL v2.0 (see the LICENSE.txt file or http://www.gnu.org/licenses/gpl-2.0.html)
 

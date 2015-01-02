@@ -1,7 +1,7 @@
 /*
 
 TextEdition - A C library for the creation of text boxes with SDL
-Copyright (C) 2014 Cokie (cokie.forever@gmail.com)
+Copyright (C) 2015 Cokie (cokie.forever@gmail.com)
 
 This program is free software; you can redistribute it and/or
 modify it under the terms of the GNU General Public License
@@ -79,7 +79,7 @@ typedef struct
     //advanced
     int blitStyle, hSpace;
     SDL_Color colorBG, colorFGSelect, colorBGSelect;
-    SDL_Rect blitSurfPos;
+    SDL_Point blitSurfPos;
     SDL_Surface *blitSurf;
 
     //system
@@ -91,8 +91,9 @@ typedef struct
     Uint32 idWriterThread;
     SDL_mutex *lockUnlockMutex, *writerMutex;
     TE_Interval selection;
-    SDL_Surface *tmpSurf, *tmpSurfSave, *HScrollBar, *VScrollBar;
-    SDL_Rect posHSB, posVSB;
+    SDL_Surface *tmpSurf, *HScrollBar, *VScrollBar;
+    SDL_Texture *texture;
+    SDL_Point posHSB, posVSB;
 } TextEdition;
 
 
